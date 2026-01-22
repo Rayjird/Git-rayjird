@@ -1,112 +1,72 @@
+import streamlit as st
 import matplotlib.pyplot as plt
 
-# =========================
-# 基本設定（ここだけ触ればOK）
-# =========================
+st.set_page_config(page_title="老後資産シミュレーター Pro", layout="centered")
 
-開始年齢 = 60
-終了年齢 = 90
-年数 = 終了年齢 - 開始年齢 + 1
+st.title("老後資産シミュレーター（Pro版）")
 
-# 利回り（年率）
-運用利回り = 0.04
+# ========= 入力 =========
+start_age = st.number_input("開始年齢", 40, 70, 50)
+retire_age = st.number_input("退職年齢", 55, 75, 65)
+pension_start_age = st.number_input("年金開始年齢", 60, 75, 65)
 
-# ---- iDeCo ----
-ideco_初期残高 = 6200000
-ideco_受給開始年齢 = 65
-ideco_月額受給 = 30000
+assets = st.number_input("現在の資産（万円）", 0, 30000, 2000)
+monthly_cost = st.number_input("毎月の生活費（万円）", 5, 50, 20)
 
-# ---- NISA ----
-nisa_初期残高 = 12000000
-nisa_拠出終了年齢 = 70
-nisa_取り崩し開始年齢 = 75
-nisa_月額取り崩し = 50000
+salary = st.number_input("現役時の年収（万円）", 0, 1000, 300)
+pension = st.number_input("年金（月額・万円）", 0, 30, 10)
 
-# =========================
-# 計算
-# =========================
+annual_return = st.slider("運用利回り（％）", 0.0, 7.0, 3.0)
 
-年齢リスト = []
-総資産リスト = []
-ideco残高リスト = []
-nisa残高リスト = []
+# ========= 計算 =========
+ages = []
+assets_history = []
 
-ideco残高 = ideco_初期残高
-nisa残高 = nisa_初期残高
+asset = assets
 
-ideco終了年 = None
-nisa終了年 = None
-
-for i in range(年数):
-    年齢 = 開始年齢 + i
-
+for age in range(start_age, 101):
     # 運用
-    ideco残高 *= (1 + 運用利回り)
-    nisa残高 *= (1 + 運用利回り)
+    asset *= (1 + annual_return / 100)
 
-    # iDeCo受給
-    if 年齢 >= ideco_受給開始年齢 and ideco残高 > 0:
-        ideco残高 -= ideco_月額受給 * 12
-        if ideco残高 <= 0 and ideco終了年 is None:
-            ideco終了年 = 年齢
+    # 収入
+    income = 0
+    if age < retire_age:
+        income = salary
+    elif age >= pension_start_age:
+        income = pension * 12
 
-    # NISA取り崩し
-    if 年齢 >= nisa_取り崩し開始年齢 and nisa残高 > 0:
-        nisa残高 -= nisa_月額取り崩し * 12
-        if nisa残高 <= 0 and nisa終了年 is None:
-            nisa終了年 = 年齢
+    # 支出
+    expense = monthly_cost * 12
 
-    ideco残高 = max(0, ideco残高)
-    nisa残高 = max(0, nisa残高)
+    # 年間収支
+    asset += income - expense
 
-    年齢リスト.append(年齢)
-    ideco残高リスト.append(ideco残高)
-    nisa残高リスト.append(nisa残高)
-    総資産リスト.append(ideco残高 + nisa残高)
+    ages.append(age)
+    assets_history.append(asset)
 
-# =========================
-# グラフ表示
-# =========================
+# ========= 表示 =========
+st.subheader("📊 資産推移")
 
-plt.figure(figsize=(10,6))
-plt.plot(年齢リスト, 総資産リスト, label="総資産")
-plt.plot(年齢リスト, ideco残高リスト, label="iDeCo")
-plt.plot(年齢リスト, nisa残高リスト, label="NISA")
+fig, ax = plt.subplots()
 
-plt.xlabel("年齢")
-plt.ylabel("金額（円）")
-plt.title("老後資産シミュレーション（シンプル版）")
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+ax.plot(ages, assets_history, label="総資産", linewidth=2)
+ax.axvline(retire_age, linestyle="--", label="退職")
+ax.axvline(pension_start_age, linestyle=":", label="年金開始")
 
-# =========================
-# 結果表示
-# =========================
+ax.set_xlabel("年齢")
+ax.set_ylabel("資産（万円）")
+ax.set_title("老後資産シミュレーション（Pro）")
+ax.legend()
+ax.grid(True)
 
-print("▼ 結果まとめ")
-if ideco終了年:
-    print(f"iDeCoは {ideco終了年} 歳で枯渇")
+st.pyplot(fig)
+
+# ========= 判定 =========
+final_asset = assets_history[-1]
+
+st.subheader("📌 結果")
+
+if final_asset < 0:
+    st.error("⚠ 老後資金が途中で枯渇します")
 else:
-    print("iDeCoは最後まで残存")
-
-if nisa終了年:
-    print(f"NISAは {nisa終了年} 歳で枯渇")
-else:
-    print("NISAは最後まで残存")
-plt.show()
-
-print("▼ 結果まとめ")
-if ideco終了年:
-    print(f"iDeCoは {ideco終了年} 歳で枯渇")
-else:
-    print("iDeCoは最後まで残存")
-
-if nisa終了年:
-    print(f"NISAは {nisa終了年} 歳で枯渇")
-else:
-    print("NISAは最後まで残存")
-
-input("Enterキーを押すと終了します")
-
+    st.success(f"✅ 100歳時点の資産：{int(final_asset)} 万円")
