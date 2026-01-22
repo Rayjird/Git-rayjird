@@ -1,12 +1,8 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 
-# ===== フォント設定（文字化け防止）=====
-font_path = "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf"
-font_prop = fm.FontProperties(fname=font_path)
-plt.rcParams["font.family"] = font_prop.get_name()
+# 日本語対策（フォント指定しない）
 plt.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(page_title="老後資産シミュレーター Pro")
@@ -90,7 +86,6 @@ if st.button("シミュレーション実行"):
 
     st.pyplot(fig)
 
-    # 結果
     final_assets = [r[-1] for r in results]
     survive = sum(1 for x in final_assets if x > 0) / simulations * 100
 
