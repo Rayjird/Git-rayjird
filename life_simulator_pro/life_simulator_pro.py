@@ -95,3 +95,18 @@ if nisa終了年:
     print(f"NISAは {nisa終了年} 歳で枯渇")
 else:
     print("NISAは最後まで残存")
+plt.show()
+
+print("▼ 結果まとめ")
+if ideco終了年:
+    print(f"iDeCoは {ideco終了年} 歳で枯渇")
+else:
+    print("iDeCoは最後まで残存")
+
+if nisa終了年:
+    print(f"NISAは {nisa終了年} 歳で枯渇")
+else:
+    print("NISAは最後まで残存")
+
+input("Enterキーを押すと終了します")
+
