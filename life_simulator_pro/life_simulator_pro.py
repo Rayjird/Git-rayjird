@@ -52,13 +52,10 @@ def simulate_path(params, rng: np.random.Generator):
 
     total_hist, cash_hist, ideco_hist, nisa_hist = [], [], [], []
 
-    # 実行実績（年次）
     ideco_contrib_hist = []
     nisa_contrib_hist = []
     ideco_withdraw_hist = []
     nisa_withdraw_hist = []
-    income_hist = []
-    living_hist = []
 
     ruined = False
     ruin_age = None
@@ -137,8 +134,6 @@ def simulate_path(params, rng: np.random.Generator):
         nisa_contrib_hist.append(nisa_contrib)
         ideco_withdraw_hist.append(ideco_withdraw)
         nisa_withdraw_hist.append(nisa_withdraw)
-        income_hist.append(income)
-        living_hist.append(living)
 
     return {
         "years": years,
@@ -150,8 +145,6 @@ def simulate_path(params, rng: np.random.Generator):
         "nisa_contrib": np.array(nisa_contrib_hist),
         "ideco_withdraw": np.array(ideco_withdraw_hist),
         "nisa_withdraw": np.array(nisa_withdraw_hist),
-        "income": np.array(income_hist),
-        "living": np.array(living_hist),
         "ruined": ruined,
         "ruin_age": ruin_age,
     }
@@ -173,7 +166,6 @@ with st.sidebar:
 
     st.caption("※ ロック中は入力欄が固定されます（事故防止）。")
 
-    # 日本語タイトルは化ける環境があるため
     jp_plot_title = st.checkbox(
         "グラフタイトルを日本語にする（化ける環境ではOFF推奨）",
         value=True,
@@ -233,6 +225,8 @@ with st.sidebar:
     mean_return = st.slider("期待リターン（年率）", 0.0, 0.12, 0.04, step=0.005, disabled=locked)
     volatility = st.slider("変動率（年率）", 0.0, 0.35, 0.12, step=0.01, disabled=locked)
 
+    ruin_threshold = st.slider("破綻確率 警告しきい値（%）", 0, 100, 20, step=5, disabled=locked)
+
     show_sample_paths = st.checkbox("サンプル軌跡（薄い線）を表示", value=True, disabled=locked)
     sample_paths_n = st.slider("サンプル表示本数", 10, 200, 80, step=10, disabled=locked)
 
@@ -276,6 +270,8 @@ def build_params_from_inputs():
         "mean_return": float(mean_return),
         "volatility": float(volatility),
 
+        "ruin_threshold": int(ruin_threshold),
+
         "jp_plot_title": bool(jp_plot_title),
         "show_sample_paths": bool(show_sample_paths),
         "sample_paths_n": int(sample_paths_n),
@@ -299,7 +295,7 @@ params = st.session_state.locked_params if st.session_state.locked and st.sessio
 # -----------------------
 years = np.arange(params["start_age"], params["end_age"] + 1)
 
-# サンプル軌跡（薄線）は別seedで表示数だけ作る
+# sample paths
 sample_paths_total = []
 if params["show_sample_paths"]:
     rng_sample = np.random.default_rng(seed=7)
@@ -307,21 +303,14 @@ if params["show_sample_paths"]:
         out = simulate_path(params, rng_sample)
         sample_paths_total.append(out["total"])
 
-# 本番試行（再現性のためseed固定）
 rng = np.random.default_rng(seed=42)
 
-total_mat = []
-cash_mat = []
-ideco_mat = []
-nisa_mat = []
+total_mat, cash_mat, ideco_mat, nisa_mat = [], [], [], []
+ideco_contrib_mat, nisa_contrib_mat = [], []
+ideco_withdraw_mat, nisa_withdraw_mat = [], []
 
-ideco_contrib_mat = []
-nisa_contrib_mat = []
-ideco_withdraw_mat = []
-nisa_withdraw_mat = []
-
-ruin_first_age = []  # 各試行の初回破綻年齢（破綻なしはNaN）
-ruin_by_age_counts = np.zeros_like(years, dtype=float)  # 年齢ごとに「その年までに破綻した」試行数
+ruin_first_age = []
+ruin_by_age_counts = np.zeros_like(years, dtype=float)
 
 for _ in range(params["trials"]):
     out = simulate_path(params, rng)
@@ -339,7 +328,6 @@ for _ in range(params["trials"]):
     if out["ruined"] and out["ruin_age"] is not None:
         r_age = out["ruin_age"]
         ruin_first_age.append(r_age)
-        # その年齢以降は「破綻済み」としてカウント
         idx = np.where(years >= r_age)[0]
         ruin_by_age_counts[idx] += 1
     else:
@@ -355,7 +343,6 @@ nisa_contrib_mat = np.array(nisa_contrib_mat)
 ideco_withdraw_mat = np.array(ideco_withdraw_mat)
 nisa_withdraw_mat = np.array(nisa_withdraw_mat)
 
-# 統計
 avg_total = total_mat.mean(axis=0)
 p10_total = np.percentile(total_mat, 10, axis=0)
 p90_total = np.percentile(total_mat, 90, axis=0)
@@ -366,23 +353,17 @@ avg_nisa = nisa_mat.mean(axis=0)
 
 final_assets = total_mat[:, -1]
 survival_rate = float(np.mean(final_assets > 0) * 100.0)
-ruin_rate = float(np.mean(np.array(np.isfinite(ruin_first_age))) * 100.0)
+ruin_rate = float(np.mean(np.isfinite(np.array(ruin_first_age, dtype=float))) * 100.0)
 
 median_final = float(np.median(final_assets))
 p10_final = float(np.percentile(final_assets, 10))
 p90_final = float(np.percentile(final_assets, 90))
 
-# 年齢別破綻確率（その年齢までに破綻済みの割合）
 ruin_prob_by_age = ruin_by_age_counts / float(params["trials"]) * 100.0
 
-# 破綻年齢（破綻した試行のみ）
 ruin_first_age_arr = np.array(ruin_first_age, dtype=float)
-if np.any(np.isfinite(ruin_first_age_arr)):
-    median_ruin_age = int(np.nanmedian(ruin_first_age_arr))
-else:
-    median_ruin_age = None
+median_ruin_age = int(np.nanmedian(ruin_first_age_arr)) if np.any(np.isfinite(ruin_first_age_arr)) else None
 
-# 実行実績（平均）
 avg_ideco_contrib = ideco_contrib_mat.mean(axis=0)
 avg_nisa_contrib = nisa_contrib_mat.mean(axis=0)
 avg_ideco_withdraw = ideco_withdraw_mat.mean(axis=0)
@@ -400,6 +381,13 @@ avg_year_ideco_withdraw = sum_ideco_withdraw / years_count
 avg_year_nisa_withdraw = sum_nisa_withdraw / years_count
 
 # -----------------------
+# Threshold warning (age when exceed)
+# -----------------------
+threshold = int(params.get("ruin_threshold", 20))
+over_idx = np.where(ruin_prob_by_age >= threshold)[0]
+ruin_threshold_age = int(years[over_idx[0]]) if len(over_idx) > 0 else None
+
+# -----------------------
 # KPI row
 # -----------------------
 c1, c2, c3, c4 = st.columns(4)
@@ -408,12 +396,20 @@ c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
 c3.metric("最終資産（中央値）", f"{int(median_final/10000):,} 万円")
 c4.metric("最終資産（10–90%）", f"{int(p10_final/10000):,}〜{int(p90_final/10000):,} 万円")
 
+if ruin_threshold_age is not None:
+    st.warning(
+        f"⚠ 破綻確率（累積）が **{threshold}%** を超えました："
+        f" **{ruin_threshold_age}歳** 時点で {ruin_prob_by_age[over_idx[0]]:.1f}%"
+    )
+else:
+    st.success(f"✅ 破綻確率（累積）が {threshold}% を超える年齢は見つかりませんでした。")
+
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 left, right = st.columns([1.65, 1.0])
 
 # -----------------------
-# Chart (line styles + ruin markers)
+# Chart (line styles + ruin markers + threshold region)
 # -----------------------
 with left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -424,40 +420,27 @@ with left:
     ax = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1])
 
-    # sample paths (thin)
     if params["show_sample_paths"] and len(sample_paths_total) > 0:
         for sp in sample_paths_total:
             ax.plot(years, yen_to_man(sp), alpha=0.06, linewidth=1)
 
-    # total band
-    ax.fill_between(
-        years,
-        yen_to_man(p10_total),
-        yen_to_man(p90_total),
-        alpha=0.16,
-        label="Total (10–90%)"
-    )
+    ax.fill_between(years, yen_to_man(p10_total), yen_to_man(p90_total), alpha=0.16, label="Total (10–90%)")
 
-    # line styles (visibility-first)
     ax.plot(years, yen_to_man(avg_total), linewidth=2.8, linestyle="-", label="Total (Average)")
     ax.plot(years, yen_to_man(avg_cash), linewidth=2.0, linestyle="--", label="Cash (Average)")
     ax.plot(years, yen_to_man(avg_ideco), linewidth=2.0, linestyle="-.", label="iDeCo (Average)")
     ax.plot(years, yen_to_man(avg_nisa), linewidth=2.0, linestyle=":", label="NISA (Average)")
 
-    # 0 line
     ax.axhline(0, linewidth=1.4, linestyle="--", alpha=0.6)
 
-    # events
     for ev in params["events"]:
         if ev["on"]:
             ax.axvline(ev["age"], linestyle="--", alpha=0.18)
 
-    # median ruin age marker
     if median_ruin_age is not None:
         ax.axvline(median_ruin_age, linestyle="--", linewidth=2.0, alpha=0.7)
         ax.text(median_ruin_age, ax.get_ylim()[1] * 0.92, "Median Ruin Age", fontsize=9)
 
-    # title (JP optional)
     if params["jp_plot_title"]:
         ax.set_title("老後資産シミュレーターPRO")
     else:
@@ -474,6 +457,18 @@ with left:
     ax2.set_ylabel("Ruin %")
     ax2.set_ylim(0, 100)
     ax2.grid(True, alpha=0.25)
+
+    # Threshold line
+    ax2.axhline(threshold, linestyle="--", linewidth=1.5, alpha=0.7, label=f"Threshold {threshold}%")
+
+    # Shade region where ruin_prob >= threshold
+    mask = ruin_prob_by_age >= threshold
+    ax2.fill_between(years, 0, 100, where=mask, alpha=0.12)
+
+    if ruin_threshold_age is not None:
+        ax2.axvline(ruin_threshold_age, linestyle="--", linewidth=2.0, alpha=0.7)
+        ax2.text(ruin_threshold_age, 95, f"{threshold}%+", fontsize=9)
+
     ax2.legend(fontsize=9, loc="upper left")
 
     st.pyplot(fig, use_container_width=True)
@@ -504,7 +499,6 @@ with right:
 
     st.dataframe(df, use_container_width=True, height=360)
 
-    # CSV Download
     csv = df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
         label="CSVダウンロード",
@@ -517,7 +511,6 @@ with right:
     st.divider()
     st.subheader("🧮 実行された積立/受取（平均）")
 
-    # 年平均（実行された額）
     col1, col2 = st.columns(2)
     with col1:
         st.metric("iDeCo 年平均積立", f"{int(avg_year_ideco_contrib):,} 円/年")
@@ -527,7 +520,6 @@ with right:
         st.metric("NISA 年平均取崩", f"{int(avg_year_nisa_withdraw):,} 円/年")
 
     st.caption("※ 余剰不足により、設定した積立額がそのまま実行されない場合があります（本表示は“実際に行われた平均額”）。")
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------
