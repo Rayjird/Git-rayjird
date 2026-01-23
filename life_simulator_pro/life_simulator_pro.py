@@ -1,11 +1,13 @@
+import os
+import time
 import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================================================
-#  老後資産シミュレーターPRO  (回数制限つき・製品版UI)
-#  - 回数制限（無料体験）
+#  老後資産シミュレーターPRO（購入者パスワード版）
+#  - 購入者用パスワード（Streamlit Secrets / env）
 #  - 設定ロック
 #  - 現金 / iDeCo / NISA / 総資産（線種で区別）
 #  - モンテカルロ + 10–90%帯
@@ -40,18 +42,57 @@ st.markdown(
 )
 
 # -----------------------
+# Password Gate（購入者用）
+# -----------------------
+def get_pro_password() -> str:
+    # 優先：Streamlit Secrets → 環境変数
+    try:
+        if "PRO_PASSWORD" in st.secrets:
+            return str(st.secrets["PRO_PASSWORD"]).strip()
+    except Exception:
+        pass
+    return str(os.getenv("PRO_PASSWORD", "")).strip()
+
+PRO_PASSWORD = get_pro_password()
+
+if "pro_authed" not in st.session_state:
+    st.session_state.pro_authed = False
+
+def password_gate():
+    # パスワード未設定ならローカル開発用に素通し（Cloudでは必ず設定推奨）
+    if not PRO_PASSWORD:
+        st.warning("⚠ PRO_PASSWORD が未設定です。Streamlit CloudのSecretsに設定してください。")
+        return
+
+    if st.session_state.pro_authed:
+        return
+
+    with st.sidebar:
+        st.header("購入者ログイン")
+        pw = st.text_input("購入者用パスワード", type="password")
+        login = st.button("ログイン", use_container_width=True)
+        st.caption("※ note購入者限定のパスワードです。")
+
+    if login:
+        if pw == PRO_PASSWORD:
+            st.session_state.pro_authed = True
+            st.success("ログインしました。")
+            time.sleep(0.3)
+            st.rerun()
+        else:
+            st.error("パスワードが違います。")
+
+    st.stop()
+
+password_gate()
+
+# -----------------------
 # Session state
 # -----------------------
 if "locked" not in st.session_state:
     st.session_state.locked = False
 if "locked_params" not in st.session_state:
     st.session_state.locked_params = None
-
-# 回数制限
-if "run_count" not in st.session_state:
-    st.session_state.run_count = 0
-
-# 最後に実行した結果を保持（リロードで消えない）
 if "sim_result" not in st.session_state:
     st.session_state.sim_result = None
 
@@ -65,9 +106,6 @@ def clamp_int(x, lo, hi):
     return int(max(lo, min(hi, int(x))))
 
 def simulate_path(params, rng: np.random.Generator):
-    """
-    1試行分の年次推移を返す（総資産/現金/iDeCo/NISA + 実際に行われた積立/受取/取崩）
-    """
     start_age = params["start_age"]
     end_age = params["end_age"]
     years = np.arange(start_age, end_age + 1)
@@ -77,11 +115,8 @@ def simulate_path(params, rng: np.random.Generator):
     nisa = params["initial_nisa"]
 
     total_hist, cash_hist, ideco_hist, nisa_hist = [], [], [], []
-
-    ideco_contrib_hist = []
-    nisa_contrib_hist = []
-    ideco_withdraw_hist = []
-    nisa_withdraw_hist = []
+    ideco_contrib_hist, nisa_contrib_hist = [], []
+    ideco_withdraw_hist, nisa_withdraw_hist = [], []
 
     ruined = False
     ruin_age = None
@@ -184,15 +219,6 @@ locked = st.session_state.locked
 with st.sidebar:
     st.header("入力（日本語）")
 
-    # 回数制限（無料体験）
-    st.subheader("無料体験（回数制限）")
-    trial_mode = st.checkbox("無料体験モードON（回数制限）", value=True, disabled=locked)
-    MAX_RUN = st.number_input("無料体験の最大実行回数", 1, 50, 5, disabled=locked)
-    if trial_mode:
-        remaining = max(0, int(MAX_RUN) - int(st.session_state.run_count))
-        st.caption(f"残り {remaining} 回（このブラウザのセッション内）")
-
-    # ロックボタン
     colA, colB = st.columns(2)
     with colA:
         lock_clicked = st.button("設定を確定（ロック）", use_container_width=True, disabled=locked)
@@ -200,6 +226,7 @@ with st.sidebar:
         unlock_clicked = st.button("ロック解除", use_container_width=True, disabled=(not locked))
     st.caption("※ ロック中は入力欄が固定されます（事故防止）。")
 
+    # グラフは英語でOK（文字化け回避）
     jp_plot_title = st.checkbox(
         "グラフタイトルを日本語にする（化ける環境ではOFF推奨）",
         value=True,
@@ -299,63 +326,35 @@ def build_params_from_inputs():
         "events": events,
         "mean_return": float(mean_return),
         "volatility": float(volatility),
-
         "ruin_threshold": int(ruin_threshold),
 
         "jp_plot_title": bool(jp_plot_title),
         "show_sample_paths": bool(show_sample_paths),
         "sample_paths_n": int(sample_paths_n),
         "trials": int(trials),
-
-        # 回数制限
-        "trial_mode": bool(trial_mode),
-        "max_run": int(MAX_RUN),
     }
 
-# ロック解除
+# -----------------------
+# Lock handling
+# -----------------------
 if unlock_clicked:
     st.session_state.locked = False
     st.session_state.locked_params = None
-    st.experimental_rerun()
+    st.rerun()
 
-# ロック確定
 if lock_clicked:
     st.session_state.locked_params = build_params_from_inputs()
     st.session_state.locked = True
-    st.experimental_rerun()
+    st.rerun()
 
-# 使用するパラメータ
 params = st.session_state.locked_params if st.session_state.locked and st.session_state.locked_params else build_params_from_inputs()
 
 # -----------------------
-# 実行ボタン（ここが回数制限ポイント）
+# Run button
 # -----------------------
-run_col1, run_col2, run_col3 = st.columns([1.0, 1.0, 3.0])
-with run_col1:
-    run_clicked = st.button("▶ シミュレーション実行", use_container_width=True)
-with run_col2:
-    reset_count = st.button("回数カウンタをリセット", use_container_width=True)
-with run_col3:
-    st.markdown(
-        '<div class="small">※ 実行ボタンを押した回数をカウントします。無料体験モードONの場合、最大回数に達すると実行できません。</div>',
-        unsafe_allow_html=True
-    )
-
-if reset_count:
-    st.session_state.run_count = 0
-    st.success("回数カウンタをリセットしました。")
+run_clicked = st.button("▶ シミュレーション実行", use_container_width=True)
 
 if run_clicked:
-    # 回数制限チェック
-    if params["trial_mode"] and st.session_state.run_count >= params["max_run"]:
-        st.error("無料体験の回数制限に達しました。続きは有料版（PRO）でご利用ください。")
-        st.stop()
-
-    st.session_state.run_count += 1
-
-    # -----------------------
-    # Run Simulation
-    # -----------------------
     years = np.arange(params["start_age"], params["end_age"] + 1)
 
     # sample paths
@@ -432,45 +431,34 @@ if run_clicked:
     avg_ideco_withdraw = ideco_withdraw_mat.mean(axis=0)
     avg_nisa_withdraw = nisa_withdraw_mat.mean(axis=0)
 
-    sum_ideco_contrib = float(avg_ideco_contrib.sum())
-    sum_nisa_contrib = float(avg_nisa_contrib.sum())
-    sum_ideco_withdraw = float(avg_ideco_withdraw.sum())
-    sum_nisa_withdraw = float(avg_nisa_withdraw.sum())
-
     years_count = len(years)
-    avg_year_ideco_contrib = sum_ideco_contrib / years_count
-    avg_year_nisa_contrib = sum_nisa_contrib / years_count
-    avg_year_ideco_withdraw = sum_ideco_withdraw / years_count
-    avg_year_nisa_withdraw = sum_nisa_withdraw / years_count
+    avg_year_ideco_contrib = float(avg_ideco_contrib.sum()) / years_count
+    avg_year_nisa_contrib = float(avg_nisa_contrib.sum()) / years_count
+    avg_year_ideco_withdraw = float(avg_ideco_withdraw.sum()) / years_count
+    avg_year_nisa_withdraw = float(avg_nisa_withdraw.sum()) / years_count
 
-    # Threshold warning (age when exceed)
     threshold = int(params.get("ruin_threshold", 20))
     over_idx = np.where(ruin_prob_by_age >= threshold)[0]
     ruin_threshold_age = int(years[over_idx[0]]) if len(over_idx) > 0 else None
 
-    # 結果を保存（表示は下で）
     st.session_state.sim_result = {
         "years": years,
         "sample_paths_total": sample_paths_total,
-
         "avg_total": avg_total,
         "p10_total": p10_total,
         "p90_total": p90_total,
         "avg_cash": avg_cash,
         "avg_ideco": avg_ideco,
         "avg_nisa": avg_nisa,
-
         "survival_rate": survival_rate,
         "ruin_rate": ruin_rate,
         "median_final": median_final,
         "p10_final": p10_final,
         "p90_final": p90_final,
-
         "ruin_prob_by_age": ruin_prob_by_age,
         "median_ruin_age": median_ruin_age,
         "threshold": threshold,
         "ruin_threshold_age": ruin_threshold_age,
-
         "avg_year_ideco_contrib": avg_year_ideco_contrib,
         "avg_year_nisa_contrib": avg_year_nisa_contrib,
         "avg_year_ideco_withdraw": avg_year_ideco_withdraw,
@@ -478,10 +466,9 @@ if run_clicked:
     }
 
 # -----------------------
-# 表示（最後に実行した結果を表示）
+# Display last result
 # -----------------------
 result = st.session_state.sim_result
-
 if result is None:
     st.info("左側で設定したら、上の「▶ シミュレーション実行」を押してください。")
     st.stop()
@@ -512,14 +499,13 @@ avg_year_nisa_contrib = result["avg_year_nisa_contrib"]
 avg_year_ideco_withdraw = result["avg_year_ideco_withdraw"]
 avg_year_nisa_withdraw = result["avg_year_nisa_withdraw"]
 
-# KPI row
+# KPI
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("資産が残る確率", f"{survival_rate:.1f}%")
 c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
 c3.metric("最終資産（中央値）", f"{int(median_final/10000):,} 万円")
 c4.metric("最終資産（10–90%）", f"{int(p10_final/10000):,}〜{int(p90_final/10000):,} 万円")
 
-# 警告
 if ruin_threshold_age is not None:
     idx0 = int(np.where(years == ruin_threshold_age)[0][0])
     st.warning(
@@ -533,7 +519,6 @@ st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 left, right = st.columns([1.65, 1.0])
 
-# Chart
 with left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📈 資産推移（モンテカルロ）")
@@ -543,34 +528,27 @@ with left:
     ax = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1])
 
-    # sample paths (thin)
     if params["show_sample_paths"] and len(sample_paths_total) > 0:
         for sp in sample_paths_total:
             ax.plot(years, yen_to_man(sp), alpha=0.06, linewidth=1)
 
-    # total band
     ax.fill_between(years, yen_to_man(p10_total), yen_to_man(p90_total), alpha=0.16, label="Total (10–90%)")
 
-    # line styles (visibility-first)
     ax.plot(years, yen_to_man(avg_total), linewidth=2.8, linestyle="-", label="Total (Average)")
     ax.plot(years, yen_to_man(avg_cash), linewidth=2.0, linestyle="--", label="Cash (Average)")
     ax.plot(years, yen_to_man(avg_ideco), linewidth=2.0, linestyle="-.", label="iDeCo (Average)")
     ax.plot(years, yen_to_man(avg_nisa), linewidth=2.0, linestyle=":", label="NISA (Average)")
 
-    # 0 line
     ax.axhline(0, linewidth=1.4, linestyle="--", alpha=0.6)
 
-    # events
     for ev in params["events"]:
         if ev["on"]:
             ax.axvline(ev["age"], linestyle="--", alpha=0.18)
 
-    # median ruin age
     if median_ruin_age is not None:
         ax.axvline(median_ruin_age, linestyle="--", linewidth=2.0, alpha=0.7)
         ax.text(median_ruin_age, ax.get_ylim()[1] * 0.92, "Median Ruin Age", fontsize=9)
 
-    # title (JP optional)
     if params["jp_plot_title"]:
         ax.set_title("老後資産シミュレーターPRO")
     else:
@@ -581,14 +559,12 @@ with left:
     ax.grid(True, alpha=0.25)
     ax.legend(ncols=2, fontsize=9)
 
-    # Ruin probability by age
     ax2.plot(years, ruin_prob_by_age, linestyle="-", linewidth=2.2, label="Ruin Probability")
     ax2.set_xlabel("Age")
     ax2.set_ylabel("Ruin %")
     ax2.set_ylim(0, 100)
     ax2.grid(True, alpha=0.25)
 
-    # Threshold line + shaded region
     ax2.axhline(threshold, linestyle="--", linewidth=1.5, alpha=0.7, label=f"Threshold {threshold}%")
     mask = ruin_prob_by_age >= threshold
     ax2.fill_between(years, 0, 100, where=mask, alpha=0.12)
@@ -607,7 +583,6 @@ with left:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Table + CSV + executed amounts
 with right:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📋 結果テーブル（平均）")
@@ -648,7 +623,6 @@ with right:
     st.caption("※ 余剰不足により、設定した積立額がそのまま実行されない場合があります（本表示は“実際に行われた平均額”）。")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Ruin info
 if median_ruin_age is not None:
     st.info(f"参考：破綻した試行の中央値の破綻年齢は **{median_ruin_age}歳** でした（破綻した試行のみで計算）。")
 else:
