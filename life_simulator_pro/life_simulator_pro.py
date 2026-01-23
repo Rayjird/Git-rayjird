@@ -3,6 +3,17 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# =========================================================
+#  老後資産シミュレーターPRO  (回数制限つき・製品版UI)
+#  - 回数制限（無料体験）
+#  - 設定ロック
+#  - 現金 / iDeCo / NISA / 総資産（線種で区別）
+#  - モンテカルロ + 10–90%帯
+#  - 破綻確率（年齢別）+ しきい値超え警告 + 超過区間の塗りつぶし
+#  - 結果テーブル + CSVダウンロード
+#  - 実行された積立/受取の集計
+# =========================================================
+
 # -----------------------
 # Page / Style
 # -----------------------
@@ -16,22 +27,37 @@ st.markdown(
       .card {padding: 14px 16px; border: 1px solid #eee; border-radius: 14px; background: #fff;}
       .hint {color:#666; font-size: 13px;}
       .divider {height: 10px;}
+      .small {font-size: 12px; color:#666;}
     </style>
     """,
     unsafe_allow_html=True
 )
 
 st.markdown('<div class="title">老後資産シミュレーターPRO</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">給与・年金・生活費・iDeCo・NISA・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="subtitle">給与・年金・生活費・iDeCo・NISA・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>',
+    unsafe_allow_html=True
+)
 
 # -----------------------
-# Session state for Lock
+# Session state
 # -----------------------
 if "locked" not in st.session_state:
     st.session_state.locked = False
 if "locked_params" not in st.session_state:
     st.session_state.locked_params = None
 
+# 回数制限
+if "run_count" not in st.session_state:
+    st.session_state.run_count = 0
+
+# 最後に実行した結果を保持（リロードで消えない）
+if "sim_result" not in st.session_state:
+    st.session_state.sim_result = None
+
+# -----------------------
+# Helpers
+# -----------------------
 def yen_to_man(x):
     return x / 10000.0
 
@@ -80,6 +106,7 @@ def simulate_path(params, rng: np.random.Generator):
         ideco_contrib = 0.0
         nisa_contrib = 0.0
 
+        # 優先度：iDeCo → NISA
         if params["ideco_on"] and (params["ideco_contrib_start"] <= age <= params["ideco_contrib_end"]) and available > 0:
             desire = params["ideco_contrib_monthly"] * 12
             ideco_contrib = min(desire, available)
@@ -157,13 +184,20 @@ locked = st.session_state.locked
 with st.sidebar:
     st.header("入力（日本語）")
 
+    # 回数制限（無料体験）
+    st.subheader("無料体験（回数制限）")
+    trial_mode = st.checkbox("無料体験モードON（回数制限）", value=True, disabled=locked)
+    MAX_RUN = st.number_input("無料体験の最大実行回数", 1, 50, 5, disabled=locked)
+    if trial_mode:
+        remaining = max(0, int(MAX_RUN) - int(st.session_state.run_count))
+        st.caption(f"残り {remaining} 回（このブラウザのセッション内）")
+
     # ロックボタン
     colA, colB = st.columns(2)
     with colA:
         lock_clicked = st.button("設定を確定（ロック）", use_container_width=True, disabled=locked)
     with colB:
         unlock_clicked = st.button("ロック解除", use_container_width=True, disabled=(not locked))
-
     st.caption("※ ロック中は入力欄が固定されます（事故防止）。")
 
     jp_plot_title = st.checkbox(
@@ -194,21 +228,17 @@ with st.sidebar:
 
     st.subheader("iDeCo（積立→受取）")
     ideco_on = st.checkbox("iDeCoを使う", value=True, disabled=locked)
-
     ideco_contrib_start = st.number_input("iDeCo 積立開始年齢", 40, 90, 60, disabled=locked)
     ideco_contrib_end = st.number_input("iDeCo 積立終了年齢", 40, 90, 65, disabled=locked)
     ideco_contrib_monthly = st.number_input("iDeCo 積立（月額）", 0, 300_000, 23_000, step=1_000, disabled=locked)
-
     ideco_withdraw_start = st.number_input("iDeCo 受取開始年齢", 50, 110, 65, disabled=locked)
     ideco_withdraw_annual = st.number_input("iDeCo 受取（年額）", 0, 20_000_000, 600_000, step=50_000, disabled=locked)
 
     st.subheader("NISA（積立→取崩）")
     nisa_on = st.checkbox("NISAを使う", value=True, disabled=locked)
-
     nisa_contrib_start = st.number_input("NISA 積立開始年齢", 40, 90, 60, disabled=locked)
     nisa_contrib_end = st.number_input("NISA 積立終了年齢", 40, 110, 75, disabled=locked)
     nisa_contrib_monthly = st.number_input("NISA 積立（月額）", 0, 500_000, 60_000, step=1_000, disabled=locked)
-
     nisa_withdraw_start = st.number_input("NISA 取崩開始年齢", 50, 110, 70, disabled=locked)
     nisa_withdraw_annual = st.number_input("NISA 取崩（年額）", 0, 50_000_000, 1_000_000, step=50_000, disabled=locked)
 
@@ -276,130 +306,225 @@ def build_params_from_inputs():
         "show_sample_paths": bool(show_sample_paths),
         "sample_paths_n": int(sample_paths_n),
         "trials": int(trials),
+
+        # 回数制限
+        "trial_mode": bool(trial_mode),
+        "max_run": int(MAX_RUN),
     }
 
+# ロック解除
 if unlock_clicked:
     st.session_state.locked = False
     st.session_state.locked_params = None
     st.experimental_rerun()
 
+# ロック確定
 if lock_clicked:
     st.session_state.locked_params = build_params_from_inputs()
     st.session_state.locked = True
     st.experimental_rerun()
 
+# 使用するパラメータ
 params = st.session_state.locked_params if st.session_state.locked and st.session_state.locked_params else build_params_from_inputs()
 
 # -----------------------
-# Run Simulation
+# 実行ボタン（ここが回数制限ポイント）
 # -----------------------
-years = np.arange(params["start_age"], params["end_age"] + 1)
+run_col1, run_col2, run_col3 = st.columns([1.0, 1.0, 3.0])
+with run_col1:
+    run_clicked = st.button("▶ シミュレーション実行", use_container_width=True)
+with run_col2:
+    reset_count = st.button("回数カウンタをリセット", use_container_width=True)
+with run_col3:
+    st.markdown(
+        '<div class="small">※ 実行ボタンを押した回数をカウントします。無料体験モードONの場合、最大回数に達すると実行できません。</div>',
+        unsafe_allow_html=True
+    )
 
-# sample paths
-sample_paths_total = []
-if params["show_sample_paths"]:
-    rng_sample = np.random.default_rng(seed=7)
-    for _ in range(min(params["sample_paths_n"], params["trials"])):
-        out = simulate_path(params, rng_sample)
-        sample_paths_total.append(out["total"])
+if reset_count:
+    st.session_state.run_count = 0
+    st.success("回数カウンタをリセットしました。")
 
-rng = np.random.default_rng(seed=42)
+if run_clicked:
+    # 回数制限チェック
+    if params["trial_mode"] and st.session_state.run_count >= params["max_run"]:
+        st.error("無料体験の回数制限に達しました。続きは有料版（PRO）でご利用ください。")
+        st.stop()
 
-total_mat, cash_mat, ideco_mat, nisa_mat = [], [], [], []
-ideco_contrib_mat, nisa_contrib_mat = [], []
-ideco_withdraw_mat, nisa_withdraw_mat = [], []
+    st.session_state.run_count += 1
 
-ruin_first_age = []
-ruin_by_age_counts = np.zeros_like(years, dtype=float)
+    # -----------------------
+    # Run Simulation
+    # -----------------------
+    years = np.arange(params["start_age"], params["end_age"] + 1)
 
-for _ in range(params["trials"]):
-    out = simulate_path(params, rng)
+    # sample paths
+    sample_paths_total = []
+    if params["show_sample_paths"]:
+        rng_sample = np.random.default_rng(seed=7)
+        for _ in range(min(params["sample_paths_n"], params["trials"])):
+            out = simulate_path(params, rng_sample)
+            sample_paths_total.append(out["total"])
 
-    total_mat.append(out["total"])
-    cash_mat.append(out["cash"])
-    ideco_mat.append(out["ideco"])
-    nisa_mat.append(out["nisa"])
+    rng = np.random.default_rng(seed=42)
 
-    ideco_contrib_mat.append(out["ideco_contrib"])
-    nisa_contrib_mat.append(out["nisa_contrib"])
-    ideco_withdraw_mat.append(out["ideco_withdraw"])
-    nisa_withdraw_mat.append(out["nisa_withdraw"])
+    total_mat, cash_mat, ideco_mat, nisa_mat = [], [], [], []
+    ideco_contrib_mat, nisa_contrib_mat = [], []
+    ideco_withdraw_mat, nisa_withdraw_mat = [], []
 
-    if out["ruined"] and out["ruin_age"] is not None:
-        r_age = out["ruin_age"]
-        ruin_first_age.append(r_age)
-        idx = np.where(years >= r_age)[0]
-        ruin_by_age_counts[idx] += 1
-    else:
-        ruin_first_age.append(np.nan)
+    ruin_first_age = []
+    ruin_by_age_counts = np.zeros_like(years, dtype=float)
 
-total_mat = np.array(total_mat)
-cash_mat = np.array(cash_mat)
-ideco_mat = np.array(ideco_mat)
-nisa_mat = np.array(nisa_mat)
+    for _ in range(params["trials"]):
+        out = simulate_path(params, rng)
 
-ideco_contrib_mat = np.array(ideco_contrib_mat)
-nisa_contrib_mat = np.array(nisa_contrib_mat)
-ideco_withdraw_mat = np.array(ideco_withdraw_mat)
-nisa_withdraw_mat = np.array(nisa_withdraw_mat)
+        total_mat.append(out["total"])
+        cash_mat.append(out["cash"])
+        ideco_mat.append(out["ideco"])
+        nisa_mat.append(out["nisa"])
 
-avg_total = total_mat.mean(axis=0)
-p10_total = np.percentile(total_mat, 10, axis=0)
-p90_total = np.percentile(total_mat, 90, axis=0)
+        ideco_contrib_mat.append(out["ideco_contrib"])
+        nisa_contrib_mat.append(out["nisa_contrib"])
+        ideco_withdraw_mat.append(out["ideco_withdraw"])
+        nisa_withdraw_mat.append(out["nisa_withdraw"])
 
-avg_cash = cash_mat.mean(axis=0)
-avg_ideco = ideco_mat.mean(axis=0)
-avg_nisa = nisa_mat.mean(axis=0)
+        if out["ruined"] and out["ruin_age"] is not None:
+            r_age = out["ruin_age"]
+            ruin_first_age.append(r_age)
+            idx = np.where(years >= r_age)[0]
+            ruin_by_age_counts[idx] += 1
+        else:
+            ruin_first_age.append(np.nan)
 
-final_assets = total_mat[:, -1]
-survival_rate = float(np.mean(final_assets > 0) * 100.0)
-ruin_rate = float(np.mean(np.isfinite(np.array(ruin_first_age, dtype=float))) * 100.0)
+    total_mat = np.array(total_mat)
+    cash_mat = np.array(cash_mat)
+    ideco_mat = np.array(ideco_mat)
+    nisa_mat = np.array(nisa_mat)
 
-median_final = float(np.median(final_assets))
-p10_final = float(np.percentile(final_assets, 10))
-p90_final = float(np.percentile(final_assets, 90))
+    ideco_contrib_mat = np.array(ideco_contrib_mat)
+    nisa_contrib_mat = np.array(nisa_contrib_mat)
+    ideco_withdraw_mat = np.array(ideco_withdraw_mat)
+    nisa_withdraw_mat = np.array(nisa_withdraw_mat)
 
-ruin_prob_by_age = ruin_by_age_counts / float(params["trials"]) * 100.0
+    avg_total = total_mat.mean(axis=0)
+    p10_total = np.percentile(total_mat, 10, axis=0)
+    p90_total = np.percentile(total_mat, 90, axis=0)
 
-ruin_first_age_arr = np.array(ruin_first_age, dtype=float)
-median_ruin_age = int(np.nanmedian(ruin_first_age_arr)) if np.any(np.isfinite(ruin_first_age_arr)) else None
+    avg_cash = cash_mat.mean(axis=0)
+    avg_ideco = ideco_mat.mean(axis=0)
+    avg_nisa = nisa_mat.mean(axis=0)
 
-avg_ideco_contrib = ideco_contrib_mat.mean(axis=0)
-avg_nisa_contrib = nisa_contrib_mat.mean(axis=0)
-avg_ideco_withdraw = ideco_withdraw_mat.mean(axis=0)
-avg_nisa_withdraw = nisa_withdraw_mat.mean(axis=0)
+    final_assets = total_mat[:, -1]
+    survival_rate = float(np.mean(final_assets > 0) * 100.0)
+    ruin_rate = float(np.mean(np.isfinite(np.array(ruin_first_age, dtype=float))) * 100.0)
 
-sum_ideco_contrib = float(avg_ideco_contrib.sum())
-sum_nisa_contrib = float(avg_nisa_contrib.sum())
-sum_ideco_withdraw = float(avg_ideco_withdraw.sum())
-sum_nisa_withdraw = float(avg_nisa_withdraw.sum())
+    median_final = float(np.median(final_assets))
+    p10_final = float(np.percentile(final_assets, 10))
+    p90_final = float(np.percentile(final_assets, 90))
 
-years_count = len(years)
-avg_year_ideco_contrib = sum_ideco_contrib / years_count
-avg_year_nisa_contrib = sum_nisa_contrib / years_count
-avg_year_ideco_withdraw = sum_ideco_withdraw / years_count
-avg_year_nisa_withdraw = sum_nisa_withdraw / years_count
+    ruin_prob_by_age = ruin_by_age_counts / float(params["trials"]) * 100.0
+
+    ruin_first_age_arr = np.array(ruin_first_age, dtype=float)
+    median_ruin_age = int(np.nanmedian(ruin_first_age_arr)) if np.any(np.isfinite(ruin_first_age_arr)) else None
+
+    avg_ideco_contrib = ideco_contrib_mat.mean(axis=0)
+    avg_nisa_contrib = nisa_contrib_mat.mean(axis=0)
+    avg_ideco_withdraw = ideco_withdraw_mat.mean(axis=0)
+    avg_nisa_withdraw = nisa_withdraw_mat.mean(axis=0)
+
+    sum_ideco_contrib = float(avg_ideco_contrib.sum())
+    sum_nisa_contrib = float(avg_nisa_contrib.sum())
+    sum_ideco_withdraw = float(avg_ideco_withdraw.sum())
+    sum_nisa_withdraw = float(avg_nisa_withdraw.sum())
+
+    years_count = len(years)
+    avg_year_ideco_contrib = sum_ideco_contrib / years_count
+    avg_year_nisa_contrib = sum_nisa_contrib / years_count
+    avg_year_ideco_withdraw = sum_ideco_withdraw / years_count
+    avg_year_nisa_withdraw = sum_nisa_withdraw / years_count
+
+    # Threshold warning (age when exceed)
+    threshold = int(params.get("ruin_threshold", 20))
+    over_idx = np.where(ruin_prob_by_age >= threshold)[0]
+    ruin_threshold_age = int(years[over_idx[0]]) if len(over_idx) > 0 else None
+
+    # 結果を保存（表示は下で）
+    st.session_state.sim_result = {
+        "years": years,
+        "sample_paths_total": sample_paths_total,
+
+        "avg_total": avg_total,
+        "p10_total": p10_total,
+        "p90_total": p90_total,
+        "avg_cash": avg_cash,
+        "avg_ideco": avg_ideco,
+        "avg_nisa": avg_nisa,
+
+        "survival_rate": survival_rate,
+        "ruin_rate": ruin_rate,
+        "median_final": median_final,
+        "p10_final": p10_final,
+        "p90_final": p90_final,
+
+        "ruin_prob_by_age": ruin_prob_by_age,
+        "median_ruin_age": median_ruin_age,
+        "threshold": threshold,
+        "ruin_threshold_age": ruin_threshold_age,
+
+        "avg_year_ideco_contrib": avg_year_ideco_contrib,
+        "avg_year_nisa_contrib": avg_year_nisa_contrib,
+        "avg_year_ideco_withdraw": avg_year_ideco_withdraw,
+        "avg_year_nisa_withdraw": avg_year_nisa_withdraw,
+    }
 
 # -----------------------
-# Threshold warning (age when exceed)
+# 表示（最後に実行した結果を表示）
 # -----------------------
-threshold = int(params.get("ruin_threshold", 20))
-over_idx = np.where(ruin_prob_by_age >= threshold)[0]
-ruin_threshold_age = int(years[over_idx[0]]) if len(over_idx) > 0 else None
+result = st.session_state.sim_result
 
-# -----------------------
+if result is None:
+    st.info("左側で設定したら、上の「▶ シミュレーション実行」を押してください。")
+    st.stop()
+
+years = result["years"]
+sample_paths_total = result["sample_paths_total"]
+
+avg_total = result["avg_total"]
+p10_total = result["p10_total"]
+p90_total = result["p90_total"]
+avg_cash = result["avg_cash"]
+avg_ideco = result["avg_ideco"]
+avg_nisa = result["avg_nisa"]
+
+survival_rate = result["survival_rate"]
+ruin_rate = result["ruin_rate"]
+median_final = result["median_final"]
+p10_final = result["p10_final"]
+p90_final = result["p90_final"]
+
+ruin_prob_by_age = result["ruin_prob_by_age"]
+median_ruin_age = result["median_ruin_age"]
+threshold = result["threshold"]
+ruin_threshold_age = result["ruin_threshold_age"]
+
+avg_year_ideco_contrib = result["avg_year_ideco_contrib"]
+avg_year_nisa_contrib = result["avg_year_nisa_contrib"]
+avg_year_ideco_withdraw = result["avg_year_ideco_withdraw"]
+avg_year_nisa_withdraw = result["avg_year_nisa_withdraw"]
+
 # KPI row
-# -----------------------
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("資産が残る確率", f"{survival_rate:.1f}%")
 c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
 c3.metric("最終資産（中央値）", f"{int(median_final/10000):,} 万円")
 c4.metric("最終資産（10–90%）", f"{int(p10_final/10000):,}〜{int(p90_final/10000):,} 万円")
 
+# 警告
 if ruin_threshold_age is not None:
+    idx0 = int(np.where(years == ruin_threshold_age)[0][0])
     st.warning(
         f"⚠ 破綻確率（累積）が **{threshold}%** を超えました："
-        f" **{ruin_threshold_age}歳** 時点で {ruin_prob_by_age[over_idx[0]]:.1f}%"
+        f" **{ruin_threshold_age}歳** 時点で {ruin_prob_by_age[idx0]:.1f}%"
     )
 else:
     st.success(f"✅ 破綻確率（累積）が {threshold}% を超える年齢は見つかりませんでした。")
@@ -408,9 +533,7 @@ st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 left, right = st.columns([1.65, 1.0])
 
-# -----------------------
-# Chart (line styles + ruin markers + threshold region)
-# -----------------------
+# Chart
 with left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📈 資産推移（モンテカルロ）")
@@ -420,27 +543,34 @@ with left:
     ax = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1])
 
+    # sample paths (thin)
     if params["show_sample_paths"] and len(sample_paths_total) > 0:
         for sp in sample_paths_total:
             ax.plot(years, yen_to_man(sp), alpha=0.06, linewidth=1)
 
+    # total band
     ax.fill_between(years, yen_to_man(p10_total), yen_to_man(p90_total), alpha=0.16, label="Total (10–90%)")
 
+    # line styles (visibility-first)
     ax.plot(years, yen_to_man(avg_total), linewidth=2.8, linestyle="-", label="Total (Average)")
     ax.plot(years, yen_to_man(avg_cash), linewidth=2.0, linestyle="--", label="Cash (Average)")
     ax.plot(years, yen_to_man(avg_ideco), linewidth=2.0, linestyle="-.", label="iDeCo (Average)")
     ax.plot(years, yen_to_man(avg_nisa), linewidth=2.0, linestyle=":", label="NISA (Average)")
 
+    # 0 line
     ax.axhline(0, linewidth=1.4, linestyle="--", alpha=0.6)
 
+    # events
     for ev in params["events"]:
         if ev["on"]:
             ax.axvline(ev["age"], linestyle="--", alpha=0.18)
 
+    # median ruin age
     if median_ruin_age is not None:
         ax.axvline(median_ruin_age, linestyle="--", linewidth=2.0, alpha=0.7)
         ax.text(median_ruin_age, ax.get_ylim()[1] * 0.92, "Median Ruin Age", fontsize=9)
 
+    # title (JP optional)
     if params["jp_plot_title"]:
         ax.set_title("老後資産シミュレーターPRO")
     else:
@@ -458,10 +588,8 @@ with left:
     ax2.set_ylim(0, 100)
     ax2.grid(True, alpha=0.25)
 
-    # Threshold line
+    # Threshold line + shaded region
     ax2.axhline(threshold, linestyle="--", linewidth=1.5, alpha=0.7, label=f"Threshold {threshold}%")
-
-    # Shade region where ruin_prob >= threshold
     mask = ruin_prob_by_age >= threshold
     ax2.fill_between(years, 0, 100, where=mask, alpha=0.12)
 
@@ -479,9 +607,7 @@ with left:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-# -----------------------
-# Result table + downloads + executed amounts
-# -----------------------
+# Table + CSV + executed amounts
 with right:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📋 結果テーブル（平均）")
@@ -522,9 +648,7 @@ with right:
     st.caption("※ 余剰不足により、設定した積立額がそのまま実行されない場合があります（本表示は“実際に行われた平均額”）。")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# -----------------------
 # Ruin info
-# -----------------------
 if median_ruin_age is not None:
     st.info(f"参考：破綻した試行の中央値の破綻年齢は **{median_ruin_age}歳** でした（破綻した試行のみで計算）。")
 else:
