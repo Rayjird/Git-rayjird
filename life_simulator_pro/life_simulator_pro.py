@@ -2,108 +2,94 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="老後資産シミュレーター Pro")
+st.title("Retirement Asset Simulator")
 
-st.title("老後資産シミュレーター Pro")
+# =====================
+# 入力欄
+# =====================
+st.sidebar.header("Basic Settings")
 
-# ======================
-# 入力
-# ======================
-start_age = st.sidebar.number_input("開始年齢", 50, 80, 60)
-end_age = st.sidebar.number_input("想定寿命", 70, 110, 90)
+start_age = st.sidebar.number_input("Start Age", 50, 80, 60)
+end_age = st.sidebar.number_input("End Age", 70, 100, 95)
 
-initial_asset = st.sidebar.number_input("初期資産（万円）", 0, 5000, 1000)
-annual_expense = st.sidebar.number_input("年間生活費（万円）", 0, 500, 250)
+salary = st.sidebar.number_input("Annual Salary (after tax)", 0, 10000000, 3000000)
+retire_age = st.sidebar.number_input("Retirement Age", 55, 80, 65)
 
-# 年金
-pension_start = st.sidebar.number_input("年金受給開始年齢", 60, 80, 65)
-annual_pension = st.sidebar.number_input("年金額（万円／年）", 0, 400, 200)
+pension_start = st.sidebar.number_input("Pension Start Age", 60, 80, 70)
+pension_amount = st.sidebar.number_input("Annual Pension", 0, 5000000, 1200000)
 
-# iDeCo
-ideco_start = st.sidebar.number_input("iDeCo開始年齢", 40, 65, 55)
-ideco_end = st.sidebar.number_input("iDeCo終了年齢", 60, 75, 65)
-ideco_monthly = st.sidebar.number_input("iDeCo積立（月・万円）", 0, 10, 2)
-ideco_payout = st.sidebar.number_input("iDeCo受取（年・万円）", 0, 200, 60)
+ideco_on = st.sidebar.checkbox("Use iDeCo", True)
+ideco_start = st.sidebar.number_input("iDeCo Start Age", 60, 75, 65)
+ideco_monthly = st.sidebar.number_input("iDeCo Monthly", 0, 100000, 30000)
 
-# NISA
-nisa_end = st.sidebar.number_input("NISA積立終了年齢", 50, 80, 65)
-nisa_withdraw_start = st.sidebar.number_input("NISA取崩開始年齢", 60, 85, 70)
-nisa_monthly = st.sidebar.number_input("NISA積立（月・万円）", 0, 20, 5)
-nisa_withdraw = st.sidebar.number_input("NISA取崩（年・万円）", 0, 300, 100)
+nisa_on = st.sidebar.checkbox("Use NISA", True)
+nisa_start = st.sidebar.number_input("NISA Start Age", 50, 75, 60)
+nisa_monthly = st.sidebar.number_input("NISA Monthly", 0, 200000, 60000)
 
-# 投資条件
-annual_return = st.sidebar.slider("期待利回り", 0.0, 8.0, 3.0) / 100
-volatility = st.sidebar.slider("変動率", 0.0, 30.0, 15.0) / 100
-simulations = st.sidebar.number_input("モンテカルロ回数", 100, 2000, 300)
+event_on = st.sidebar.checkbox("One-time Event")
+event_age = st.sidebar.number_input("Event Age", 50, 100, 70)
+event_amount = st.sidebar.number_input("Event Amount (+/-)", -10000000, 10000000, -2000000)
 
-# ======================
-# 計算
-# ======================
-if st.button("シミュレーション実行"):
+initial_asset = st.sidebar.number_input("Initial Asset", 0, 50000000, 1000000)
 
-    ages = list(range(start_age, end_age + 1))
-    results = []
+# Simulation
+st.sidebar.header("Simulation")
+trial = st.sidebar.slider("Monte Carlo Trials", 100, 3000, 1000)
+mean_return = st.sidebar.slider("Expected Return", 0.0, 0.1, 0.04)
+volatility = st.sidebar.slider("Volatility", 0.0, 0.3, 0.12)
 
-    for _ in range(simulations):
-        asset = initial_asset * 10000
-        ideco = 0
-        nisa = 0
-        path = []
+# =====================
+# モンテカルロ
+# =====================
+years = list(range(start_age, end_age + 1))
+results = []
 
-        for age in ages:
-            # 運用
-            asset *= np.random.normal(1 + annual_return, volatility)
+for _ in range(trial):
+    asset = initial_asset
+    path = []
 
-            # 年金
-            if age >= pension_start:
-                asset += annual_pension * 10000
+    for age in years:
+        # income
+        if age < retire_age:
+            asset += salary
 
-            # iDeCo
-            if ideco_start <= age <= ideco_end:
-                ideco += ideco_monthly * 12 * 10000
-            elif age > ideco_end:
-                ideco -= ideco_payout * 10000
-            ideco = max(ideco, 0)
+        if age >= pension_start:
+            asset += pension_amount
 
-            # NISA
-            if age <= nisa_end:
-                nisa += nisa_monthly * 12 * 10000
-            elif age >= nisa_withdraw_start:
-                nisa -= nisa_withdraw * 10000
-            nisa = max(nisa, 0)
+        if ideco_on and age >= ideco_start:
+            asset += ideco_monthly * 12
 
-            # 生活費
-            asset -= annual_expense * 10000
-            asset = max(asset, 0)
+        if nisa_on and age >= nisa_start:
+            asset += nisa_monthly * 12
 
-            path.append(asset + ideco + nisa)
+        if event_on and age == event_age:
+            asset += event_amount
 
-        results.append(path)
+        # investment
+        r = np.random.normal(mean_return, volatility)
+        asset *= (1 + r)
 
-    # ======================
-    # グラフ（英語のみ）
-    # ======================
-    fig, ax = plt.subplots(figsize=(10, 6))
+        path.append(asset / 10000)  # 万円表示
 
-    for r in results:
-        ax.plot(ages, r, color="gray", alpha=0.05)
+    results.append(path)
 
-    avg = np.mean(results, axis=0)
-    ax.plot(ages, avg, color="blue", linewidth=2, label="Average")
+results = np.array(results)
+avg = results.mean(axis=0)
+p10 = np.percentile(results, 10, axis=0)
+p90 = np.percentile(results, 90, axis=0)
 
-    ax.set_title("Retirement Asset Simulation")
-    ax.set_xlabel("Age")
-    ax.set_ylabel("Assets (Yen)")
-    ax.legend()
+# =====================
+# グラフ
+# =====================
+fig, ax = plt.subplots(figsize=(10, 5))
 
-    st.pyplot(fig)
+ax.plot(years, avg, label="Average")
+ax.fill_between(years, p10, p90, alpha=0.3, label="10–90% Range")
 
-    # ======================
-    # 結果表示
-    # ======================
-    final_assets = [r[-1] for r in results]
-    survive = sum(1 for x in final_assets if x > 0) / simulations * 100
+ax.set_xlabel("Age")
+ax.set_ylabel("Assets (10,000 Yen)")
+ax.set_title("Retirement Asset Simulation")
+ax.legend()
+ax.grid(True)
 
-    st.subheader("結果")
-    st.write(f"資産が尽きない確率：**{survive:.1f}%**")
-    st.write(f"平均最終資産：**{int(np.mean(final_assets)):,} 円**")
+st.pyplot(fig)
