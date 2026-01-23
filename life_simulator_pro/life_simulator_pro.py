@@ -2,44 +2,47 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.title("Retirement Asset Simulator")
+st.title("老後資産シミュレーター")
 
 # =====================
-# 入力欄
+# 入力欄（日本語）
 # =====================
-st.sidebar.header("Basic Settings")
+st.sidebar.header("基本設定")
 
-start_age = st.sidebar.number_input("Start Age", 50, 80, 60)
-end_age = st.sidebar.number_input("End Age", 70, 100, 95)
+start_age = st.sidebar.number_input("開始年齢", 50, 80, 60)
+end_age = st.sidebar.number_input("終了年齢", 70, 100, 95)
 
-salary = st.sidebar.number_input("Annual Salary (after tax)", 0, 10000000, 3000000)
-retire_age = st.sidebar.number_input("Retirement Age", 55, 80, 65)
+salary = st.sidebar.number_input("給与手取り（年額）", 0, 10000000, 3000000)
+retire_age = st.sidebar.number_input("退職年齢", 55, 80, 65)
 
-pension_start = st.sidebar.number_input("Pension Start Age", 60, 80, 70)
-pension_amount = st.sidebar.number_input("Annual Pension", 0, 5000000, 1200000)
+pension_start = st.sidebar.number_input("年金開始年齢", 60, 80, 70)
+pension_amount = st.sidebar.number_input("年金額（年額）", 0, 5000000, 1200000)
 
-ideco_on = st.sidebar.checkbox("Use iDeCo", True)
-ideco_start = st.sidebar.number_input("iDeCo Start Age", 60, 75, 65)
-ideco_monthly = st.sidebar.number_input("iDeCo Monthly", 0, 100000, 30000)
+ideco_on = st.sidebar.checkbox("iDeCoを使う", True)
+ideco_start = st.sidebar.number_input("iDeCo開始年齢", 60, 75, 65)
+ideco_monthly = st.sidebar.number_input("iDeCo月額", 0, 100000, 30000)
 
-nisa_on = st.sidebar.checkbox("Use NISA", True)
-nisa_start = st.sidebar.number_input("NISA Start Age", 50, 75, 60)
-nisa_monthly = st.sidebar.number_input("NISA Monthly", 0, 200000, 60000)
+nisa_on = st.sidebar.checkbox("NISAを使う", True)
+nisa_start = st.sidebar.number_input("NISA開始年齢", 50, 75, 60)
+nisa_monthly = st.sidebar.number_input("NISA月額", 0, 200000, 60000)
 
-event_on = st.sidebar.checkbox("One-time Event")
-event_age = st.sidebar.number_input("Event Age", 50, 100, 70)
-event_amount = st.sidebar.number_input("Event Amount (+/-)", -10000000, 10000000, -2000000)
+event_on = st.sidebar.checkbox("一時イベントを設定")
+event_age = st.sidebar.number_input("イベント発生年齢", 50, 100, 70)
+event_amount = st.sidebar.number_input("イベント金額（±）", -20000000, 20000000, -2000000)
 
-initial_asset = st.sidebar.number_input("Initial Asset", 0, 50000000, 1000000)
-
-# Simulation
-st.sidebar.header("Simulation")
-trial = st.sidebar.slider("Monte Carlo Trials", 100, 3000, 1000)
-mean_return = st.sidebar.slider("Expected Return", 0.0, 0.1, 0.04)
-volatility = st.sidebar.slider("Volatility", 0.0, 0.3, 0.12)
+initial_asset = st.sidebar.number_input("初期資産", 0, 50000000, 1000000)
 
 # =====================
-# モンテカルロ
+# シミュレーション設定
+# =====================
+st.sidebar.header("シミュレーション")
+
+trial = st.sidebar.slider("試行回数", 500, 3000, 1000)
+mean_return = st.sidebar.slider("期待リターン", 0.0, 0.1, 0.04)
+volatility = st.sidebar.slider("変動率", 0.0, 0.3, 0.12)
+
+# =====================
+# 計算
 # =====================
 years = list(range(start_age, end_age + 1))
 results = []
@@ -49,7 +52,7 @@ for _ in range(trial):
     path = []
 
     for age in years:
-        # income
+        # 収入
         if age < retire_age:
             asset += salary
 
@@ -62,10 +65,11 @@ for _ in range(trial):
         if nisa_on and age >= nisa_start:
             asset += nisa_monthly * 12
 
+        # ★イベントはここで確定反映
         if event_on and age == event_age:
             asset += event_amount
 
-        # investment
+        # 運用
         r = np.random.normal(mean_return, volatility)
         asset *= (1 + r)
 
@@ -74,6 +78,7 @@ for _ in range(trial):
     results.append(path)
 
 results = np.array(results)
+
 avg = results.mean(axis=0)
 p10 = np.percentile(results, 10, axis=0)
 p90 = np.percentile(results, 90, axis=0)
@@ -83,12 +88,16 @@ p90 = np.percentile(results, 90, axis=0)
 # =====================
 fig, ax = plt.subplots(figsize=(10, 5))
 
-ax.plot(years, avg, label="Average")
-ax.fill_between(years, p10, p90, alpha=0.3, label="10–90% Range")
+ax.plot(years, avg, label="平均資産")
+ax.fill_between(years, p10, p90, alpha=0.3, label="10–90%範囲")
 
-ax.set_xlabel("Age")
-ax.set_ylabel("Assets (10,000 Yen)")
-ax.set_title("Retirement Asset Simulation")
+if event_on:
+    ax.axvline(event_age, color="red", linestyle="--", alpha=0.7)
+    ax.text(event_age, max(avg)*0.9, "Event", color="red")
+
+ax.set_xlabel("年齢")
+ax.set_ylabel("資産（万円）")
+ax.set_title("老後資産シミュレーション")
 ax.legend()
 ax.grid(True)
 
