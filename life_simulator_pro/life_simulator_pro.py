@@ -1,6 +1,13 @@
 import os
 import time
 import streamlit as st
+# ↓ここを追加します
+st.set_page_config(
+    page_title="老後資産シミュレーター　PRO版",
+    page_icon="🚀", # 好きな絵文字に変えられます
+    layout="wide"    # 画面を広く使う設定（お好みで）
+)
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
