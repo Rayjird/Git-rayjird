@@ -1,1 +1,0 @@
-print("life simulator start")
