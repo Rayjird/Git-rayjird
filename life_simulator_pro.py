@@ -7,7 +7,7 @@ st.set_page_config(
     page_title="老後資産シミュレーター PRO2",
     page_icon="💰",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 import numpy as np
@@ -41,8 +41,7 @@ st.markdown("""
 <style>
   .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
   .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"]{width:780px !important;}
-  section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
+  .input-label{font-size:15px !important;font-weight:600 !important;}
   .hint{color:#777;font-size:12px;margin-top:4px;}
   .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
                padding:10px 16px;margin-top:8px;font-size:13px;line-height:1.9;}
@@ -73,16 +72,15 @@ def password_gate():
         return
     if st.session_state.pro_authed:
         return
-    with st.sidebar:
-        st.header("購入者ログイン")
-        pw = st.text_input("購入者用パスワード", type="password")
-        if st.button("ログイン", use_container_width=True):
-            if pw == PRO_PASSWORD:
-                st.session_state.pro_authed = True
-                time.sleep(0.3); st.rerun()
-            else:
-                st.error("パスワードが違います。")
-        st.caption("※ note 購入者限定のパスワードです。")
+    st.header("購入者ログイン")
+    pw = st.text_input("購入者用パスワード", type="password")
+    if st.button("ログイン", use_container_width=True):
+        if pw == PRO_PASSWORD:
+            st.session_state.pro_authed = True
+            time.sleep(0.3); st.rerun()
+        else:
+            st.error("パスワードが違います。")
+    st.caption("※ note 購入者限定のパスワードです。")
     st.stop()
 
 password_gate()
@@ -253,11 +251,13 @@ def simulate_path(params, rng):
                 ruined=ruined, ruin_age=ruin_age)
 
 # ══════════════════════════════════════════════════════════
-#  サイドバー
+#  タブ定義
 # ══════════════════════════════════════════════════════════
+tab_input, tab_result = st.tabs(["⚙️ 設定入力", "📈 グラフ・結果"])
+
 locked = st.session_state.locked
 
-with st.sidebar:
+with tab_input:
     st.header("⚙️ シミュレーション設定")
     cA, cB = st.columns(2)
     with cA: lock_clicked   = st.button("🔒 設定を確定", use_container_width=True, disabled=locked)
@@ -495,162 +495,156 @@ if run_clicked:
         show_sp=params["show_sample_paths"],
     )
 
-# ── 結果表示 ──────────────────────────────────────────────
-result = st.session_state.sim_result
-if result is None:
-    st.info("← 左側で設定を入力し、「▶ シミュレーション実行」を押してください。")
-    st.stop()
+with tab_result:
+    result = st.session_state.sim_result
+    if result is None:
+        st.info("「⚙️ 設定入力」タブで設定後、「▶ シミュレーション実行」を押してください。")
+        st.stop()
 
-years_arr = result["years"]
-avg_total=result["avg_total"]; p10_total=result["p10_total"]; p90_total=result["p90_total"]
-avg_cash=result["avg_cash"];   avg_ideco=result["avg_ideco"]; avg_nisa=result["avg_nisa"]
-avg_taxable=result["avg_taxable"]
-survival_rate=result["survival_rate"]; ruin_rate=result["ruin_rate"]
-median_final=result["median_final"]; p10_final=result["p10_final"]; p90_final=result["p90_final"]
-ruin_prob=result["ruin_prob"]; median_ruin=result["median_ruin"]
-threshold=result["threshold"]; ruin_thr_age=result["ruin_thr_age"]
-key_events=result["key_events"]; show_sp=result["show_sp"]
-sample_paths_total=result["sample_paths_total"]
+    years_arr = result["years"]
+    avg_total=result["avg_total"]; p10_total=result["p10_total"]; p90_total=result["p90_total"]
+    avg_cash=result["avg_cash"];   avg_ideco=result["avg_ideco"]; avg_nisa=result["avg_nisa"]
+    avg_taxable=result["avg_taxable"]
+    survival_rate=result["survival_rate"]; ruin_rate=result["ruin_rate"]
+    median_final=result["median_final"]; p10_final=result["p10_final"]; p90_final=result["p90_final"]
+    ruin_prob=result["ruin_prob"]; median_ruin=result["median_ruin"]
+    threshold=result["threshold"]; ruin_thr_age=result["ruin_thr_age"]
+    key_events=result["key_events"]; show_sp=result["show_sp"]
+    sample_paths_total=result["sample_paths_total"]
 
-# KPI
-c1,c2,c3,c4 = st.columns(4)
-c1.metric("資産が残る確率",       f"{survival_rate:.1f}%")
-c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
-c3.metric("最終資産（中央値）",   fmt_man(median_final))
-c4.metric("最終資産（10〜90%）",  f"{int(p10_final/10000):,}〜{int(p90_final/10000):,} 万円")
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("資産が残る確率",       f"{survival_rate:.1f}%")
+    c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
+    c3.metric("最終資産（中央値）",   fmt_man(median_final))
+    c4.metric("最終資産（10〜90%）",  f"{int(p10_final/10000):,}〜{int(p90_final/10000):,} 万円")
 
-if ruin_thr_age is not None:
-    idx0 = int(np.where(years_arr == ruin_thr_age)[0][0])
-    st.warning(f"⚠ 破綻確率が **{threshold}%** を超えました： **{ruin_thr_age}歳** 時点で {ruin_prob[idx0]:.1f}%")
-else:
-    st.success(f"✅ 破綻確率が {threshold}% を超える年齢はありませんでした。")
+    if ruin_thr_age is not None:
+        idx0 = int(np.where(years_arr == ruin_thr_age)[0][0])
+        st.warning(f"⚠ 破綻確率が **{threshold}%** を超えました： **{ruin_thr_age}歳** 時点で {ruin_prob[idx0]:.1f}%")
+    else:
+        st.success(f"✅ 破綻確率が {threshold}% を超える年齢はありませんでした。")
 
-with st.expander("📌 重要変換点", expanded=True):
-    cols = st.columns(3)
-    for i, ke in enumerate(sorted(key_events, key=lambda x: x["age"])):
-        cols[i%3].markdown(
-            f'<span style="color:{ke["color"]};font-weight:700;">● {ke["label"]}</span>',
-            unsafe_allow_html=True)
+    with st.expander("📌 重要変換点", expanded=True):
+        cols = st.columns(3)
+        for i, ke in enumerate(sorted(key_events, key=lambda x: x["age"])):
+            cols[i%3].markdown(
+                f'<span style="color:{ke["color"]};font-weight:700;">● {ke["label"]}</span>',
+                unsafe_allow_html=True)
 
-st.divider()
+    st.divider()
 
-# ── グラフ（全幅・英語表記） ──────────────────────────────
-fig = plt.figure(figsize=(18, 10))
-gs  = fig.add_gridspec(2, 1, height_ratios=[3.0, 1.2], hspace=0.28)
-ax  = fig.add_subplot(gs[0])
-ax2 = fig.add_subplot(gs[1])
+    fig = plt.figure(figsize=(18, 10))
+    gs  = fig.add_gridspec(2, 1, height_ratios=[3.0, 1.2], hspace=0.28)
+    ax  = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1])
 
-if show_sp and len(sample_paths_total) > 0:
-    for sp in sample_paths_total:
-        ax.plot(years_arr, yen_to_man(sp), alpha=0.06, linewidth=0.8, color="#8899bb")
+    if show_sp and len(sample_paths_total) > 0:
+        for sp in sample_paths_total:
+            ax.plot(years_arr, yen_to_man(sp), alpha=0.06, linewidth=0.8, color="#8899bb")
 
-ax.fill_between(years_arr, yen_to_man(p10_total), yen_to_man(p90_total),
-                alpha=0.20, color="#4c72b0", label="Total Assets (10-90%)")
-ax.plot(years_arr, yen_to_man(avg_total), lw=3.0, ls="-",  color="#1a6aff", label="Total (avg)")
-ax.plot(years_arr, yen_to_man(avg_cash),  lw=2.0, ls="--", color="#e67e22", label="Cash (avg)")
-ax.plot(years_arr, yen_to_man(avg_ideco), lw=2.0, ls="-.", color="#27ae60", label="iDeCo (avg)")
-ax.plot(years_arr, yen_to_man(avg_nisa),    lw=2.0, ls=":",  color="#8e44ad", label="NISA (avg)")
-ax.plot(years_arr, yen_to_man(avg_taxable), lw=2.0, ls=(0,(3,1,1,1,1,1)), color="#16a085", label="Taxable (avg)")
-ax.axhline(0, lw=1.4, ls="--", alpha=0.5, color="red")
+    ax.fill_between(years_arr, yen_to_man(p10_total), yen_to_man(p90_total),
+                    alpha=0.20, color="#4c72b0", label="Total Assets (10-90%)")
+    ax.plot(years_arr, yen_to_man(avg_total), lw=3.0, ls="-",  color="#1a6aff", label="Total (avg)")
+    ax.plot(years_arr, yen_to_man(avg_cash),  lw=2.0, ls="--", color="#e67e22", label="Cash (avg)")
+    ax.plot(years_arr, yen_to_man(avg_ideco), lw=2.0, ls="-.", color="#27ae60", label="iDeCo (avg)")
+    ax.plot(years_arr, yen_to_man(avg_nisa),    lw=2.0, ls=":",  color="#8e44ad", label="NISA (avg)")
+    ax.plot(years_arr, yen_to_man(avg_taxable), lw=2.0, ls=(0,(3,1,1,1,1,1)), color="#16a085", label="Taxable (avg)")
+    ax.axhline(0, lw=1.4, ls="--", alpha=0.5, color="red")
 
-y_max   = float(yen_to_man(np.max(p90_total)))
-y_min   = float(yen_to_man(np.min(p10_total)))
-y_range = max(abs(y_max - y_min), 1.0)
-plotted_ages = []
-for ke in sorted(key_events, key=lambda x: x["age"]):
-    age = ke["age"]
-    if age not in years_arr: continue
-    idx   = int(np.where(years_arr == age)[0][0])
-    y_val = float(yen_to_man(avg_total[idx]))
-    n_near = sum(1 for a in plotted_ages if abs(a - age) < 4)
-    y_off  = y_range * (0.14 + n_near * 0.11)
-    plotted_ages.append(age)
-    ax.annotate(ke["elabel"],
-                xy=(age, y_val), xytext=(age, y_val + y_off),
-                fontsize=9, color=ke["color"], fontweight="bold", ha="center",
-                arrowprops=dict(arrowstyle="->", color=ke["color"], lw=1.2),
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                          edgecolor=ke["color"], alpha=0.88))
+    y_max   = float(yen_to_man(np.max(p90_total)))
+    y_min   = float(yen_to_man(np.min(p10_total)))
+    y_range = max(abs(y_max - y_min), 1.0)
+    plotted_ages = []
+    for ke in sorted(key_events, key=lambda x: x["age"]):
+        age = ke["age"]
+        if age not in years_arr: continue
+        idx   = int(np.where(years_arr == age)[0][0])
+        y_val = float(yen_to_man(avg_total[idx]))
+        n_near = sum(1 for a in plotted_ages if abs(a - age) < 4)
+        y_off  = y_range * (0.14 + n_near * 0.11)
+        plotted_ages.append(age)
+        ax.annotate(ke["elabel"],
+                    xy=(age, y_val), xytext=(age, y_val + y_off),
+                    fontsize=9, color=ke["color"], fontweight="bold", ha="center",
+                    arrowprops=dict(arrowstyle="->", color=ke["color"], lw=1.2),
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                              edgecolor=ke["color"], alpha=0.88))
 
-ax.set_title("Retirement Asset Simulator PRO2 - Monte Carlo", fontsize=15, fontweight="bold", pad=12)
-ax.set_xlabel("Age", fontsize=13)
-ax.set_ylabel("Assets (10,000 JPY)", fontsize=13)
-ax.grid(True, alpha=0.22)
-ax.legend(ncols=2, fontsize=11, loc="upper right")
-ax.tick_params(labelsize=12)
+    ax.set_title("Retirement Asset Simulator PRO2 - Monte Carlo", fontsize=15, fontweight="bold", pad=12)
+    ax.set_xlabel("Age", fontsize=13)
+    ax.set_ylabel("Assets (10,000 JPY)", fontsize=13)
+    ax.grid(True, alpha=0.22)
+    ax.legend(ncols=2, fontsize=11, loc="upper right")
+    ax.tick_params(labelsize=12)
 
-ax2.plot(years_arr, ruin_prob, lw=2.5, color="#c0392b", label="Ruin Probability")
-ax2.axhline(threshold, ls="--", lw=1.5, alpha=0.8, color="#8e44ad", label=f"Threshold {threshold}%")
-mask = ruin_prob >= threshold
-ax2.fill_between(years_arr, 0, 100, where=mask, alpha=0.10, color="#c0392b")
-if ruin_thr_age is not None:
-    ax2.axvline(ruin_thr_age, ls="--", lw=2.0, alpha=0.7, color="#8e44ad")
-    ax2.text(ruin_thr_age + 0.3, 88, f">{threshold}% at {ruin_thr_age}",
-             fontsize=10, color="#8e44ad", fontweight="bold")
-ax2.set_xlabel("Age", fontsize=12)
-ax2.set_ylabel("Ruin Prob. (%)", fontsize=12)
-ax2.set_ylim(0, 100)
-ax2.grid(True, alpha=0.22)
-ax2.legend(fontsize=11, loc="upper left")
-ax2.tick_params(labelsize=11)
+    ax2.plot(years_arr, ruin_prob, lw=2.5, color="#c0392b", label="Ruin Probability")
+    ax2.axhline(threshold, ls="--", lw=1.5, alpha=0.8, color="#8e44ad", label=f"Threshold {threshold}%")
+    mask = ruin_prob >= threshold
+    ax2.fill_between(years_arr, 0, 100, where=mask, alpha=0.10, color="#c0392b")
+    if ruin_thr_age is not None:
+        ax2.axvline(ruin_thr_age, ls="--", lw=2.0, alpha=0.7, color="#8e44ad")
+        ax2.text(ruin_thr_age + 0.3, 88, f">{threshold}% at {ruin_thr_age}",
+                 fontsize=10, color="#8e44ad", fontweight="bold")
+    ax2.set_xlabel("Age", fontsize=12)
+    ax2.set_ylabel("Ruin Prob. (%)", fontsize=12)
+    ax2.set_ylim(0, 100)
+    ax2.grid(True, alpha=0.22)
+    ax2.legend(fontsize=11, loc="upper left")
+    ax2.tick_params(labelsize=11)
 
-st.pyplot(fig, use_container_width=True)
-plt.close(fig)
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
-# ── グラフ直下に日本語凡例 ───────────────────────────────
-st.markdown("""
+    st.markdown("""
 <div class="legend-box">
 <b>📊 グラフ凡例（日本語）</b><br>
-<span style="color:#4c72b0">■</span> Total Assets (10-90%) ＝ <b>総資産の10〜90%帯</b>（モンテカルロのばらつき範囲）<br>
+<span style="color:#4c72b0">■</span> Total Assets (10-90%) ＝ <b>総資産の10〜90%帯</b><br>
 <span style="color:#1a6aff">─</span> Total (avg) ＝ <b>総資産（平均）</b><br>
-<span style="color:#e67e22">- -</span> Cash (avg) ＝ <b>現金・預金（平均）</b>　※運用リターン非連動<br>
+<span style="color:#e67e22">- -</span> Cash (avg) ＝ <b>現金・預金（平均）</b>　※リターン非連動<br>
 <span style="color:#27ae60">-・</span> iDeCo (avg) ＝ <b>iDeCo残高（平均）</b><br>
 <span style="color:#8e44ad">…</span> NISA (avg) ＝ <b>NISA残高（平均）</b><br>
 <span style="color:#16a085">--</span> Taxable (avg) ＝ <b>特定口座残高（平均）</b><br>
-<span style="color:#c0392b">─</span> Ruin Probability ＝ <b>破綻確率（累積）</b>　/ 
-<span style="color:#8e44ad">- -</span> Threshold ＝ <b>警告しきい値</b><br>
-<span style="color:#777">縦軸単位：万円　／　横軸：年齢　／　薄い線：各試行のサンプル軌跡</span>
+<span style="color:#c0392b">─</span> Ruin Probability ＝ <b>破綻確率（累積）</b> /
+<span style="color:#8e44ad">- -</span> Threshold ＝ <b>警告しきい値</b>
 </div>
 """, unsafe_allow_html=True)
 
-st.divider()
+    st.divider()
 
-# ── テーブル＋集計 ────────────────────────────────────────
-tbl_col, stat_col = st.columns([2, 1])
+    tbl_col, stat_col = st.columns([2, 1])
+    with tbl_col:
+        st.subheader("📋 結果テーブル（平均）")
+        df = pd.DataFrame({
+            "年齢":            years_arr,
+            "総資産（万円）":  np.round(yen_to_man(avg_total),   0).astype(int),
+            "10%（万円）":     np.round(yen_to_man(p10_total),   0).astype(int),
+            "90%（万円）":     np.round(yen_to_man(p90_total),   0).astype(int),
+            "現金（万円）":    np.round(yen_to_man(avg_cash),    0).astype(int),
+            "iDeCo（万円）":   np.round(yen_to_man(avg_ideco),   0).astype(int),
+            "NISA（万円）":    np.round(yen_to_man(avg_nisa),    0).astype(int),
+            "特定口座（万円）":np.round(yen_to_man(avg_taxable), 0).astype(int),
+            "破綻確率（%）":   np.round(ruin_prob, 1),
+        })
+        st.dataframe(df, use_container_width=True, height=420)
+        csv = df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 CSVダウンロード", csv,
+                           "retirement_pro2_results.csv", "text/csv", use_container_width=True)
 
-with tbl_col:
-    st.subheader("📋 結果テーブル（平均）")
-    df = pd.DataFrame({
-        "年齢":          years_arr,
-        "総資産（万円）": np.round(yen_to_man(avg_total), 0).astype(int),
-        "10%（万円）":   np.round(yen_to_man(p10_total), 0).astype(int),
-        "90%（万円）":   np.round(yen_to_man(p90_total), 0).astype(int),
-        "現金（万円）":  np.round(yen_to_man(avg_cash),  0).astype(int),
-        "iDeCo（万円）": np.round(yen_to_man(avg_ideco), 0).astype(int),
-        "NISA（万円）":    np.round(yen_to_man(avg_nisa),    0).astype(int),
-        "特定口座（万円）": np.round(yen_to_man(avg_taxable), 0).astype(int),
-        "破綻確率（%）":   np.round(ruin_prob, 1),
-    })
-    st.dataframe(df, use_container_width=True, height=420)
-    csv = df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 CSVダウンロード", csv,
-                       "retirement_pro2_results.csv", "text/csv", use_container_width=True)
-
-with stat_col:
-    st.subheader("🧮 積立 / 受取（平均）")
-    yr_cnt = result["yr_cnt"]
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("iDeCo 年平均積立", f"{int(result['avg_ic'].sum()/yr_cnt):,} 円")
-        st.metric("iDeCo 年平均受取", f"{int(result['avg_iw'].sum()/yr_cnt):,} 円")
-    with c2:
-        st.metric("NISA 年平均積立",  f"{int(result['avg_nc'].sum()/yr_cnt):,} 円")
-        st.metric("NISA 年平均取崩",  f"{int(result['avg_nw'].sum()/yr_cnt):,} 円")
-    with c3:
-        st.metric("特定口座 年平均積立", f"{int(result['avg_tc'].sum()/yr_cnt):,} 円")
-        st.metric("特定口座 年平均取崩", f"{int(result['avg_tw'].sum()/yr_cnt):,} 円")
-    st.caption("※ 余剰不足時は設定額より少なくなる場合があります。")
-    if median_ruin is not None:
-        st.info(f"参考：破綻した試行の中央値は **{median_ruin}歳** でした。")
-    else:
-        st.success("試行内で総資産が 0 以下になったケースはありませんでした。")
+    with stat_col:
+        st.subheader("🧮 積立 / 受取（平均）")
+        yr_cnt = result["yr_cnt"]
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("iDeCo 年平均積立", f"{int(result['avg_ic'].sum()/yr_cnt):,} 円")
+            st.metric("iDeCo 年平均受取", f"{int(result['avg_iw'].sum()/yr_cnt):,} 円")
+        with c2:
+            st.metric("NISA 年平均積立",  f"{int(result['avg_nc'].sum()/yr_cnt):,} 円")
+            st.metric("NISA 年平均取崩",  f"{int(result['avg_nw'].sum()/yr_cnt):,} 円")
+        with c3:
+            st.metric("特定口座 年平均積立", f"{int(result['avg_tc'].sum()/yr_cnt):,} 円")
+            st.metric("特定口座 年平均取崩", f"{int(result['avg_tw'].sum()/yr_cnt):,} 円")
+        st.caption("※ 余剰不足時は設定額より少なくなる場合があります。")
+        if median_ruin is not None:
+            st.info(f"参考：破綻した試行の中央値は **{median_ruin}歳** でした。")
+        else:
+            st.success("試行内で総資産が 0 以下になったケースはありませんでした。")
