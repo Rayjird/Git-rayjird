@@ -41,7 +41,7 @@ st.markdown("""
 <style>
   .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
   .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"]{max-width:800px !important;}
+  section[data-testid="stSidebar"] > div:first-child{width:780px !important; min-width:780px !important; max-width:800px !important;transition: none !important;}
   section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
   .hint{color:#777;font-size:12px;margin-top:4px;}
   .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
@@ -118,39 +118,23 @@ def linked_int(label, lo, hi, default, step, key, disabled=False, man=False):
     man=True のとき戻り値は円（内部値）。
     """
     vk   = "val_" + key
-    sk_f = "fine_" + key
 
     if vk   not in st.session_state:
         st.session_state[vk]   = int(clamp(default, lo, hi))
-    if sk_f not in st.session_state:
-        st.session_state[sk_f] = True
-
     if man:
-        lo_m  = int(lo  // 10_000)
-        hi_m  = int(hi  // 10_000)
-        cur_m = int(clamp(st.session_state[vk], lo, hi) // 10_000)
-        fine  = bool(st.session_state[sk_f])
-        step_fine = max(1, int(step // 10_000))
-        step_big  = max(step_fine * 10, 10)
-        step_m    = step_fine if fine else step_big
+        lo_m      = int(lo  // 10_000)
+        hi_m      = int(hi  // 10_000)
+        cur_m     = int(clamp(st.session_state[vk], lo, hi) // 10_000)
+        step_m    = max(1, int(step // 10_000))   # 常に細かいステップ
 
-        btn_col, sl_col = st.columns([1, 5])
-        with btn_col:
-            st.markdown("<div style='margin-top:22px'></div>", unsafe_allow_html=True)
-            if st.button("細" if fine else "粗", key="btn_" + key,
-                         disabled=disabled, use_container_width=True,
-                         help="細かい/大まかステップ切替"):
-                st.session_state[sk_f] = not fine
-                st.rerun()
-        with sl_col:
-            new_sl_m = st.slider(
-                f"{label}（万円）",
-                min_value=lo_m, max_value=hi_m,
-                value=cur_m, step=step_m,
-                disabled=disabled,
-                key="wsl_" + key,
-                format="%d 万円",
-            )
+        new_sl_m = st.slider(
+            f"{label}（万円）",
+            min_value=lo_m, max_value=hi_m,
+            value=cur_m, step=step_m,
+            disabled=disabled,
+            key="wsl_" + key,
+            format="%d 万円",
+        )
         if new_sl_m != cur_m:
             st.session_state[vk] = int(new_sl_m) * 10_000
         return int(st.session_state[vk])
@@ -281,7 +265,7 @@ with st.sidebar:
     st.caption("ロック中は入力欄が固定されます。")
 
     st.subheader("📅 期間")
-    start_age = linked_int("開始年齢",         20,  80, 40, 1, "start_age", disabled=locked)
+    start_age = linked_int("開始年齢",         20,  90, 40, 1, "start_age", disabled=locked)
     end_age   = linked_int("終了年齢（寿命）", 50, 105, 95, 1, "end_age",   disabled=locked)
     end_age   = max(end_age, start_age + 1)
 
@@ -292,8 +276,8 @@ with st.sidebar:
 
     st.subheader("💼 収入")
     salary_net        = linked_int("給与手取り（年額）",    0, 20_000_000, 3_000_000, 100_000, "salary",    disabled=locked, man=True)
-    retire_age        = linked_int("退職年齢",              40,  70,       65,        1,       "ret_age",   disabled=locked)
-    pension_start_age = linked_int("公的年金 受給開始年齢", 60, 75,        70,        1,       "pen_age",   disabled=locked)
+    retire_age        = linked_int("退職年齢",              40,  80,       65,        1,       "ret_age",   disabled=locked)
+    pension_start_age = linked_int("公的年金 受給開始年齢", 60, 80,        70,        1,       "pen_age",   disabled=locked)
     pension_annual    = linked_int("公的年金（年額）",      0,  8_000_000, 1_200_000,  50_000, "pension",   disabled=locked, man=True)
 
     st.subheader("🛒 生活費（年額）")
@@ -306,7 +290,7 @@ with st.sidebar:
     st.subheader("🏛️ iDeCo（積立 → 受取）")
     ideco_on              = st.checkbox("iDeCo を使う", value=True, disabled=locked)
     ideco_contrib_start   = linked_int("積立開始年齢", 20,  65,        40,      1,      "ide_cs", disabled=locked)
-    ideco_contrib_end     = linked_int("積立終了年齢", 40,  65,        65,      1,      "ide_ce", disabled=locked)
+    ideco_contrib_end     = linked_int("積立終了年齢", 40,  70,        65,      1,      "ide_ce", disabled=locked)
     ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked, man=True)
     ideco_withdraw_start  = linked_int("受取開始年齢", 60,  75,        65,      1,      "ide_ws", disabled=locked)
     ideco_withdraw_annual = linked_int("受取（年額）", 0,  12_000_000, 600_000, 50_000, "ide_wa", disabled=locked, man=True)
@@ -314,9 +298,9 @@ with st.sidebar:
     st.subheader("📊 NISA（積立 → 取崩）")
     nisa_on              = st.checkbox("NISA を使う", value=True, disabled=locked)
     nisa_contrib_start   = linked_int("積立開始年齢", 20,  70,        40,     1,     "nisa_cs", disabled=locked)
-    nisa_contrib_end     = linked_int("積立終了年齢", 20,  75,        65,     1,     "nisa_ce", disabled=locked)
+    nisa_contrib_end     = linked_int("積立終了年齢", 20,  80,        65,     1,     "nisa_ce", disabled=locked)
     nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked, man=True)
-    nisa_withdraw_start  = linked_int("取崩開始年齢", 50,  85,        70,     1,     "nisa_ws", disabled=locked)
+    nisa_withdraw_start  = linked_int("取崩開始年齢", 50,  90,        70,     1,     "nisa_ws", disabled=locked)
 
     nisa_withdraw_mode = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked)
     if nisa_withdraw_mode == "定額":
@@ -330,9 +314,9 @@ with st.sidebar:
     taxable_on              = st.checkbox("特定口座を使う", value=False, disabled=locked)
     initial_taxable         = linked_int("特定口座 残高（初期）", 0, 100_000_000, 0, 100_000, "ini_taxable", disabled=locked, man=True)
     taxable_contrib_start   = linked_int("積立開始年齢", 20,  70, 40, 1, "tax_cs", disabled=locked)
-    taxable_contrib_end     = linked_int("積立終了年齢", 20,  75, 60, 1, "tax_ce", disabled=locked)
+    taxable_contrib_end     = linked_int("積立終了年齢", 20,  80, 60, 1, "tax_ce", disabled=locked)
     taxable_contrib_monthly = linked_int("積立（月額）", 0, 1_000_000, 50_000, 10_000, "tax_cm", disabled=locked, man=True)
-    taxable_withdraw_start  = linked_int("取崩開始年齢", 50,  90, 70, 1, "tax_ws", disabled=locked)
+    taxable_withdraw_start  = linked_int("取崩開始年齢", 50,  95, 70, 1, "tax_ws", disabled=locked)
     taxable_withdraw_mode   = st.radio("取崩方法（特定）", ["定額", "定率"], horizontal=True, disabled=locked, key="tax_mode")
     if taxable_withdraw_mode == "定額":
         taxable_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "tax_wa", disabled=locked, man=True)
