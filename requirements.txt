@@ -1,2 +1,5 @@
 matplotlib
-japanize-matplotlib
+streamlit
+numpy
+pandas
+matplotlib
