@@ -41,7 +41,7 @@ st.markdown("""
 <style>
   .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
   .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"]{min-width:750px !important;max-width:800px !important;}
+  section[data-testid="stSidebar"]{max-width:800px !important;}
   section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
   .hint{color:#777;font-size:12px;margin-top:4px;}
   .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="sim-title">💰 老後資産シミュレーター PRO2</div>', unsafe_allow_html=True)
-st.markdown('<div class="sim-sub">給与・年金・生活費・iDeCo・NISA・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>', unsafe_allow_html=True)
+st.markdown('<div class="sim-sub">給与・年金・生活費・iDeCo・NISA・特定口座・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>', unsafe_allow_html=True)
 
 # ── パスワードゲート ──────────────────────────────────────
 def get_pro_password():
@@ -202,11 +202,12 @@ def linked_float(label, lo, hi, default, step, key, fmt="%.3f", disabled=False):
 # ══════════════════════════════════════════════════════════
 def simulate_path(params, rng):
     years = np.arange(params["start_age"], params["end_age"] + 1)
-    cash  = params["initial_cash"]
-    ideco = params["initial_ideco"]
-    nisa  = params["initial_nisa"]
-    total_h=[]; cash_h=[]; ideco_h=[]; nisa_h=[]
-    ic_h=[]; nc_h=[]; iw_h=[]; nw_h=[]
+    cash    = params["initial_cash"]
+    ideco   = params["initial_ideco"]
+    nisa    = params["initial_nisa"]
+    taxable = params["initial_taxable"]
+    total_h=[]; cash_h=[]; ideco_h=[]; nisa_h=[]; taxable_h=[]
+    ic_h=[]; nc_h=[]; iw_h=[]; nw_h=[]; tc_h=[]; tw_h=[]
     ruined=False; ruin_age=None
     mu=params["mean_return"]; sigma=params["volatility"]; infl=params["inflation_rate"]
 
@@ -225,33 +226,46 @@ def simulate_path(params, rng):
         if params["nisa_on"] and params["nisa_contrib_start"] <= age <= params["nisa_contrib_end"] and available > 0:
             nc = min(params["nisa_contrib_monthly"] * 12, available); nisa += nc; available -= nc
 
+        # 特定口座積立
+        tc = 0.0
+        if params["taxable_on"] and params["taxable_contrib_start"] <= age <= params["taxable_contrib_end"] and available > 0:
+            tc = min(params["taxable_contrib_monthly"] * 12, available); taxable += tc; available -= tc
+
         cash = available   # 現金はリターン非連動
 
-        iw = nw = 0.0
+        iw = nw = tw = 0.0
         if params["ideco_on"] and age >= params["ideco_withdraw_start"] and ideco > 0:
             iw = min(params["ideco_withdraw_annual"], ideco); ideco -= iw; cash += iw
         if params["nisa_on"] and age >= params["nisa_withdraw_start"] and nisa > 0:
             nw = (nisa * params["nisa_withdraw_rate"] if params["nisa_withdraw_mode"] == "定率"
                   else min(params["nisa_withdraw_annual"], nisa))
             nw = min(nw, nisa); nisa -= nw; cash += nw
+        if params["taxable_on"] and age >= params["taxable_withdraw_start"] and taxable > 0:
+            tw = (taxable * params["taxable_withdraw_rate"] if params["taxable_withdraw_mode"] == "定率"
+                  else min(params["taxable_withdraw_annual"], taxable))
+            tw = min(tw, taxable); taxable -= tw; cash += tw
 
         for ev in params["events"]:
             if ev["on"] and age == ev["age"]:
                 cash += ev["amount"] if ev["direction"] == "収入" else -abs(ev["amount"])
 
         r = rng.normal(mu, sigma)
-        ideco *= (1.0 + r); nisa *= (1.0 + r)
-        total = cash + ideco + nisa
+        ideco   *= (1.0 + r); nisa *= (1.0 + r); taxable *= (1.0 + r)
+        total = cash + ideco + nisa + taxable
         if not ruined and total <= 0: ruined=True; ruin_age=int(age)
 
-        total_h.append(total); cash_h.append(cash); ideco_h.append(ideco); nisa_h.append(nisa)
-        ic_h.append(ic); nc_h.append(nc); iw_h.append(iw); nw_h.append(nw)
+        total_h.append(total); cash_h.append(cash); ideco_h.append(ideco)
+        nisa_h.append(nisa); taxable_h.append(taxable)
+        ic_h.append(ic); nc_h.append(nc); iw_h.append(iw)
+        nw_h.append(nw); tc_h.append(tc); tw_h.append(tw)
 
     return dict(years=years,
                 total=np.array(total_h), cash=np.array(cash_h),
                 ideco=np.array(ideco_h),  nisa=np.array(nisa_h),
+                taxable=np.array(taxable_h),
                 ic=np.array(ic_h), nc=np.array(nc_h),
                 iw=np.array(iw_h), nw=np.array(nw_h),
+                tc=np.array(tc_h), tw=np.array(tw_h),
                 ruined=ruined, ruin_age=ruin_age)
 
 # ══════════════════════════════════════════════════════════
@@ -267,50 +281,65 @@ with st.sidebar:
     st.caption("ロック中は入力欄が固定されます。")
 
     st.subheader("📅 期間")
-    start_age = linked_int("開始年齢",         20, 110, 60, 1, "start_age", disabled=locked)
-    end_age   = linked_int("終了年齢（寿命）", 20, 110, 95, 1, "end_age",   disabled=locked)
+    start_age = linked_int("開始年齢",         20,  80, 40, 1, "start_age", disabled=locked)
+    end_age   = linked_int("終了年齢（寿命）", 50, 105, 95, 1, "end_age",   disabled=locked)
     end_age   = max(end_age, start_age + 1)
 
     st.subheader("🏦 初期資産（円）")
-    initial_cash  = linked_int("現金・預金（初期）", 0, 1_000_000_000, 10_000_000, 500_000, "ini_cash",  disabled=locked, man=True)
-    initial_ideco = linked_int("iDeCo 残高（初期）", 0, 1_000_000_000, 0,          500_000, "ini_ideco", disabled=locked, man=True)
-    initial_nisa  = linked_int("NISA 残高（初期）",  0, 1_000_000_000, 0,          500_000, "ini_nisa",  disabled=locked, man=True)
+    initial_cash  = linked_int("現金・預金（初期）", 0, 50_000_000,  10_000_000, 100_000, "ini_cash",  disabled=locked, man=True)
+    initial_ideco = linked_int("iDeCo 残高（初期）", 0, 100_000_000,   0,          100_000, "ini_ideco", disabled=locked, man=True)
+    initial_nisa  = linked_int("NISA 残高（初期）",  0, 100_000_000,   0,          100_000, "ini_nisa",  disabled=locked, man=True)
 
     st.subheader("💼 収入")
-    salary_net        = linked_int("給与手取り（年額）",    0, 30_000_000, 3_000_000, 100_000, "salary",    disabled=locked, man=True)
-    retire_age        = linked_int("退職年齢",              20, 110,       65,        1,       "ret_age",   disabled=locked)
-    pension_start_age = linked_int("公的年金 受給開始年齢", 60, 90,        70,        1,       "pen_age",   disabled=locked)
-    pension_annual    = linked_int("公的年金（年額）",      0, 10_000_000, 1_200_000, 50_000,  "pension",   disabled=locked, man=True)
+    salary_net        = linked_int("給与手取り（年額）",    0, 20_000_000, 3_000_000, 100_000, "salary",    disabled=locked, man=True)
+    retire_age        = linked_int("退職年齢",              40,  70,       65,        1,       "ret_age",   disabled=locked)
+    pension_start_age = linked_int("公的年金 受給開始年齢", 60, 75,        70,        1,       "pen_age",   disabled=locked)
+    pension_annual    = linked_int("公的年金（年額）",      0,  8_000_000, 1_200_000,  50_000, "pension",   disabled=locked, man=True)
 
     st.subheader("🛒 生活費（年額）")
-    living_before = linked_int("退職前 生活費", 0, 20_000_000, 2_500_000, 50_000, "liv_b", disabled=locked, man=True)
-    living_after  = linked_int("退職後 生活費", 0, 20_000_000, 2_000_000, 50_000, "liv_a", disabled=locked, man=True)
+    living_before = linked_int("退職前 生活費", 0, 12_000_000, 2_500_000, 50_000, "liv_b", disabled=locked, man=True)
+    living_after  = linked_int("退職後 生活費", 0, 12_000_000, 2_000_000, 50_000, "liv_a", disabled=locked, man=True)
 
     st.subheader("📈 インフレ率（年率）")
     inflation_rate = linked_float("インフレ率", 0.0, 0.10, 0.01, 0.005, "infl", disabled=locked)
 
     st.subheader("🏛️ iDeCo（積立 → 受取）")
     ideco_on              = st.checkbox("iDeCo を使う", value=True, disabled=locked)
-    ideco_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,      1,      "ide_cs", disabled=locked)
-    ideco_contrib_end     = linked_int("積立終了年齢", 20, 110,        65,      1,      "ide_ce", disabled=locked)
+    ideco_contrib_start   = linked_int("積立開始年齢", 20,  65,        40,      1,      "ide_cs", disabled=locked)
+    ideco_contrib_end     = linked_int("積立終了年齢", 40,  65,        65,      1,      "ide_ce", disabled=locked)
     ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked, man=True)
-    ideco_withdraw_start  = linked_int("受取開始年齢", 20, 110,        65,      1,      "ide_ws", disabled=locked)
-    ideco_withdraw_annual = linked_int("受取（年額）", 0,  20_000_000, 600_000, 50_000, "ide_wa", disabled=locked, man=True)
+    ideco_withdraw_start  = linked_int("受取開始年齢", 60,  75,        65,      1,      "ide_ws", disabled=locked)
+    ideco_withdraw_annual = linked_int("受取（年額）", 0,  12_000_000, 600_000, 50_000, "ide_wa", disabled=locked, man=True)
 
     st.subheader("📊 NISA（積立 → 取崩）")
     nisa_on              = st.checkbox("NISA を使う", value=True, disabled=locked)
-    nisa_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,     1,     "nisa_cs", disabled=locked)
-    nisa_contrib_end     = linked_int("積立終了年齢", 20, 110,        75,     1,     "nisa_ce", disabled=locked)
+    nisa_contrib_start   = linked_int("積立開始年齢", 20,  70,        40,     1,     "nisa_cs", disabled=locked)
+    nisa_contrib_end     = linked_int("積立終了年齢", 20,  75,        65,     1,     "nisa_ce", disabled=locked)
     nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked, man=True)
-    nisa_withdraw_start  = linked_int("取崩開始年齢", 20, 110,        70,     1,     "nisa_ws", disabled=locked)
+    nisa_withdraw_start  = linked_int("取崩開始年齢", 50,  85,        70,     1,     "nisa_ws", disabled=locked)
 
     nisa_withdraw_mode = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked)
     if nisa_withdraw_mode == "定額":
-        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 50_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked, man=True)
+        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked, man=True)
         nisa_withdraw_rate   = 0.04
     else:
         nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked)
         nisa_withdraw_annual = 0
+
+    st.subheader("🏦 特定口座（積立 → 取崩）")
+    taxable_on              = st.checkbox("特定口座を使う", value=False, disabled=locked)
+    initial_taxable         = linked_int("特定口座 残高（初期）", 0, 100_000_000, 0, 100_000, "ini_taxable", disabled=locked, man=True)
+    taxable_contrib_start   = linked_int("積立開始年齢", 20,  70, 40, 1, "tax_cs", disabled=locked)
+    taxable_contrib_end     = linked_int("積立終了年齢", 20,  75, 60, 1, "tax_ce", disabled=locked)
+    taxable_contrib_monthly = linked_int("積立（月額）", 0, 1_000_000, 50_000, 10_000, "tax_cm", disabled=locked, man=True)
+    taxable_withdraw_start  = linked_int("取崩開始年齢", 50,  90, 70, 1, "tax_ws", disabled=locked)
+    taxable_withdraw_mode   = st.radio("取崩方法（特定）", ["定額", "定率"], horizontal=True, disabled=locked, key="tax_mode")
+    if taxable_withdraw_mode == "定額":
+        taxable_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "tax_wa", disabled=locked, man=True)
+        taxable_withdraw_rate   = 0.04
+    else:
+        taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked)
+        taxable_withdraw_annual = 0
 
     st.subheader("🎯 一時イベント（最大12件）")
     _ev_def = [
@@ -365,6 +394,15 @@ def build_params():
         nisa_withdraw_annual=float(nisa_withdraw_annual),
         nisa_withdraw_mode=nisa_withdraw_mode,
         nisa_withdraw_rate=float(nisa_withdraw_rate),
+        taxable_on=bool(taxable_on),
+        initial_taxable=float(initial_taxable),
+        taxable_contrib_start=int(taxable_contrib_start),
+        taxable_contrib_end=max(int(taxable_contrib_end), int(taxable_contrib_start)),
+        taxable_contrib_monthly=float(taxable_contrib_monthly),
+        taxable_withdraw_start=int(taxable_withdraw_start),
+        taxable_withdraw_annual=float(taxable_withdraw_annual),
+        taxable_withdraw_mode=taxable_withdraw_mode,
+        taxable_withdraw_rate=float(taxable_withdraw_rate),
         events=events,
         mean_return=float(mean_return), volatility=float(volatility),
         ruin_threshold=int(ruin_threshold),
@@ -395,29 +433,33 @@ if run_clicked:
             sample_paths_total.append(out["total"].copy())
 
     rng = np.random.default_rng(seed=42)
-    total_mat=[]; cash_mat=[]; ideco_mat=[]; nisa_mat=[]
-    ic_mat=[]; nc_mat=[]; iw_mat=[]; nw_mat=[]
+    total_mat=[]; cash_mat=[]; ideco_mat=[]; nisa_mat=[]; taxable_mat=[]
+    ic_mat=[]; nc_mat=[]; iw_mat=[]; nw_mat=[]; tc_mat=[]; tw_mat=[]
     ruin_ages=[]; ruin_counts=np.zeros(len(years_arr), dtype=float)
 
     for _ in range(int(params["trials"])):
         out = simulate_path(params, rng)
         total_mat.append(out["total"]); cash_mat.append(out["cash"])
         ideco_mat.append(out["ideco"]); nisa_mat.append(out["nisa"])
+        taxable_mat.append(out["taxable"])
         ic_mat.append(out["ic"]); nc_mat.append(out["nc"])
         iw_mat.append(out["iw"]); nw_mat.append(out["nw"])
+        tc_mat.append(out["tc"]); tw_mat.append(out["tw"])
         if out["ruined"] and out["ruin_age"] is not None:
             ruin_ages.append(out["ruin_age"])
             ruin_counts[np.where(years_arr >= out["ruin_age"])[0]] += 1
         else:
             ruin_ages.append(np.nan)
 
-    total_mat = np.array(total_mat); cash_mat = np.array(cash_mat)
-    ideco_mat = np.array(ideco_mat); nisa_mat = np.array(nisa_mat)
+    total_mat   = np.array(total_mat);   cash_mat  = np.array(cash_mat)
+    ideco_mat   = np.array(ideco_mat);   nisa_mat  = np.array(nisa_mat)
+    taxable_mat = np.array(taxable_mat)
 
-    avg_total = total_mat.mean(axis=0)
-    p10_total = np.percentile(total_mat, 10, axis=0)
-    p90_total = np.percentile(total_mat, 90, axis=0)
-    avg_cash  = cash_mat.mean(axis=0); avg_ideco = ideco_mat.mean(axis=0); avg_nisa = nisa_mat.mean(axis=0)
+    avg_total   = total_mat.mean(axis=0)
+    p10_total   = np.percentile(total_mat, 10, axis=0)
+    p90_total   = np.percentile(total_mat, 90, axis=0)
+    avg_cash    = cash_mat.mean(axis=0);  avg_ideco = ideco_mat.mean(axis=0)
+    avg_nisa    = nisa_mat.mean(axis=0);  avg_taxable = taxable_mat.mean(axis=0)
 
     final_assets  = total_mat[:, -1]
     survival_rate = float(np.mean(final_assets > 0) * 100)
@@ -457,12 +499,14 @@ if run_clicked:
         years=years_arr, sample_paths_total=sample_paths_total,
         avg_total=avg_total, p10_total=p10_total, p90_total=p90_total,
         avg_cash=avg_cash, avg_ideco=avg_ideco, avg_nisa=avg_nisa,
+        avg_taxable=avg_taxable,
         survival_rate=survival_rate, ruin_rate=ruin_rate,
         median_final=median_final, p10_final=p10_final, p90_final=p90_final,
         ruin_prob=ruin_prob, median_ruin=median_ruin,
         threshold=params["ruin_threshold"], ruin_thr_age=ruin_thr_age,
         avg_ic=np.array(ic_mat).mean(axis=0), avg_nc=np.array(nc_mat).mean(axis=0),
         avg_iw=np.array(iw_mat).mean(axis=0), avg_nw=np.array(nw_mat).mean(axis=0),
+        avg_tc=np.array(tc_mat).mean(axis=0), avg_tw=np.array(tw_mat).mean(axis=0),
         yr_cnt=len(years_arr), key_events=key_events,
         show_sp=params["show_sample_paths"],
     )
@@ -476,6 +520,7 @@ if result is None:
 years_arr = result["years"]
 avg_total=result["avg_total"]; p10_total=result["p10_total"]; p90_total=result["p90_total"]
 avg_cash=result["avg_cash"];   avg_ideco=result["avg_ideco"]; avg_nisa=result["avg_nisa"]
+avg_taxable=result["avg_taxable"]
 survival_rate=result["survival_rate"]; ruin_rate=result["ruin_rate"]
 median_final=result["median_final"]; p10_final=result["p10_final"]; p90_final=result["p90_final"]
 ruin_prob=result["ruin_prob"]; median_ruin=result["median_ruin"]
@@ -520,7 +565,8 @@ ax.fill_between(years_arr, yen_to_man(p10_total), yen_to_man(p90_total),
 ax.plot(years_arr, yen_to_man(avg_total), lw=3.0, ls="-",  color="#1a6aff", label="Total (avg)")
 ax.plot(years_arr, yen_to_man(avg_cash),  lw=2.0, ls="--", color="#e67e22", label="Cash (avg)")
 ax.plot(years_arr, yen_to_man(avg_ideco), lw=2.0, ls="-.", color="#27ae60", label="iDeCo (avg)")
-ax.plot(years_arr, yen_to_man(avg_nisa),  lw=2.0, ls=":",  color="#8e44ad", label="NISA (avg)")
+ax.plot(years_arr, yen_to_man(avg_nisa),    lw=2.0, ls=":",  color="#8e44ad", label="NISA (avg)")
+ax.plot(years_arr, yen_to_man(avg_taxable), lw=2.0, ls=(0,(3,1,1,1,1,1)), color="#16a085", label="Taxable (avg)")
 ax.axhline(0, lw=1.4, ls="--", alpha=0.5, color="red")
 
 y_max   = float(yen_to_man(np.max(p90_total)))
@@ -576,6 +622,7 @@ st.markdown("""
 <span style="color:#e67e22">- -</span> Cash (avg) ＝ <b>現金・預金（平均）</b>　※運用リターン非連動<br>
 <span style="color:#27ae60">-・</span> iDeCo (avg) ＝ <b>iDeCo残高（平均）</b><br>
 <span style="color:#8e44ad">…</span> NISA (avg) ＝ <b>NISA残高（平均）</b><br>
+<span style="color:#16a085">--</span> Taxable (avg) ＝ <b>特定口座残高（平均）</b><br>
 <span style="color:#c0392b">─</span> Ruin Probability ＝ <b>破綻確率（累積）</b>　/ 
 <span style="color:#8e44ad">- -</span> Threshold ＝ <b>警告しきい値</b><br>
 <span style="color:#777">縦軸単位：万円　／　横軸：年齢　／　薄い線：各試行のサンプル軌跡</span>
@@ -596,8 +643,9 @@ with tbl_col:
         "90%（万円）":   np.round(yen_to_man(p90_total), 0).astype(int),
         "現金（万円）":  np.round(yen_to_man(avg_cash),  0).astype(int),
         "iDeCo（万円）": np.round(yen_to_man(avg_ideco), 0).astype(int),
-        "NISA（万円）":  np.round(yen_to_man(avg_nisa),  0).astype(int),
-        "破綻確率（%）": np.round(ruin_prob, 1),
+        "NISA（万円）":    np.round(yen_to_man(avg_nisa),    0).astype(int),
+        "特定口座（万円）": np.round(yen_to_man(avg_taxable), 0).astype(int),
+        "破綻確率（%）":   np.round(ruin_prob, 1),
     })
     st.dataframe(df, use_container_width=True, height=420)
     csv = df.to_csv(index=False).encode("utf-8-sig")
@@ -607,13 +655,16 @@ with tbl_col:
 with stat_col:
     st.subheader("🧮 積立 / 受取（平均）")
     yr_cnt = result["yr_cnt"]
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric("iDeCo 年平均積立", f"{int(result['avg_ic'].sum()/yr_cnt):,} 円")
         st.metric("iDeCo 年平均受取", f"{int(result['avg_iw'].sum()/yr_cnt):,} 円")
     with c2:
         st.metric("NISA 年平均積立",  f"{int(result['avg_nc'].sum()/yr_cnt):,} 円")
         st.metric("NISA 年平均取崩",  f"{int(result['avg_nw'].sum()/yr_cnt):,} 円")
+    with c3:
+        st.metric("特定口座 年平均積立", f"{int(result['avg_tc'].sum()/yr_cnt):,} 円")
+        st.metric("特定口座 年平均取崩", f"{int(result['avg_tw'].sum()/yr_cnt):,} 円")
     st.caption("※ 余剰不足時は設定額より少なくなる場合があります。")
     if median_ruin is not None:
         st.info(f"参考：破綻した試行の中央値は **{median_ruin}歳** でした。")
