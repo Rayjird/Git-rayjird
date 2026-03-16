@@ -86,7 +86,7 @@ def password_gate():
 password_gate()
 
 # ── セッション初期化 ──────────────────────────────────────
-for k, v in [("locked", False), ("locked_params", None), ("sim_result", None), ("go_result", False)]:
+for k, v in [("locked", False), ("locked_params", None), ("sim_result", None), ("sim_done", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -266,24 +266,7 @@ def simulate_path(params, rng):
 # ══════════════════════════════════════════════════════════
 #  タブ定義
 # ══════════════════════════════════════════════════════════
-# go_result フラグが立っていたらグラフタブを選択状態にする
-_tab_idx = 1 if st.session_state.go_result else 0
 tab_input, tab_result = st.tabs(["⚙️ 設定入力", "📈 グラフ・結果"])
-# JavaScriptでタブをアクティブにする（フラグが立っているとき）
-if st.session_state.go_result:
-    st.session_state.go_result = False   # フラグをリセット
-    # Streamlit のタブボタンを JS でクリックして切り替える
-    js = """
-    <script>
-    window.addEventListener('load', function() {
-        setTimeout(function() {
-            var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-            if (tabs.length >= 2) { tabs[1].click(); }
-        }, 300);
-    });
-    </script>
-    """
-    st.components.v1.html(js, height=0)
 
 locked = st.session_state.locked
 
@@ -528,9 +511,24 @@ if run_clicked:
             yr_cnt=len(years_arr), key_events=key_events,
             show_sp=params["show_sample_paths"],
         )
-    # 計算完了 → go_result フラグを立てて rerun → JSでタブ切替
-    st.session_state.go_result = True
-    st.rerun()
+    # 計算完了 → フラグを立てる（rerun しない）
+    st.session_state.sim_done = True
+
+# 完了後にグラフタブへ誘導するボタンを表示
+if st.session_state.sim_done and st.session_state.sim_result is not None:
+    st.success("✅ 計算完了！")
+    # st.button で tab_result をアクティブにするトリックは使えないため
+    # ユーザーが自分でタブをクリックするよう案内する
+    st.markdown(
+        """
+        <div style="text-align:center; margin:12px 0;">
+          <span style="font-size:18px; font-weight:700; color:#1a6aff;">
+            ⬆️ 上の「📈 グラフ・結果」タブをクリックしてください
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with tab_result:
     result = st.session_state.sim_result
