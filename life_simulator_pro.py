@@ -109,96 +109,98 @@ def fmt_man(x): return f"{int(x/10000):,} 万円"
 #   number_input の value= が新しい session_state["sl_{key}"] になる。
 # ══════════════════════════════════════════════════════════
 
-def _nb_changed(sl_key, nb_tmp_key, lo, hi, step):
-    """number_input 変更時: 値を sl_key に書き戻す"""
-    raw = st.session_state.get(nb_tmp_key, None)
-    if raw is not None:
-        st.session_state[sl_key] = clamp(raw, lo, hi)
+# ══════════════════════════════════════════════════════════
+#  スライダー＋数値入力 連動ウィジェット
+#
+#  【設計】
+#   値の正源 = "val_{key}"（専用の保管キー）
+#   スライダーは key なしで描画し、変更を検知して val_ を更新。
+#   number_input も key なしで描画し、on_change で val_ を更新 → st.rerun()。
+#   両ウィジェットとも value= に val_ を渡すだけなので競合なし。
+#
+#   ※ Streamlit の制約：
+#     「key= を持つウィジェットの session_state キーには
+#      on_change 内で直接書き込めない」
+#     → スライダー/nb に key= を与えず、val_ キーだけで管理する。
+# ══════════════════════════════════════════════════════════
 
 def linked_int(label, lo, hi, default, step, key, disabled=False):
-    """整数スライダー＋数値入力 連動"""
-    sl_key  = "sl_" + key
-    nb_key  = "nb_" + key
-
-    # スライダーキー初期化
-    if sl_key not in st.session_state:
-        st.session_state[sl_key] = int(clamp(default, lo, hi))
-
-    cur = int(st.session_state[sl_key])
+    """整数スライダー＋数値入力 連動（key なし方式）"""
+    vk = "val_" + key                          # 値保管キー
+    if vk not in st.session_state:
+        st.session_state[vk] = int(clamp(default, lo, hi))
+    cur = int(clamp(st.session_state[vk], lo, hi))
 
     col_sl, col_nb = st.columns([3, 1])
     with col_sl:
-        st.slider(label, min_value=int(lo), max_value=int(hi),
-                  value=cur, step=int(step),
-                  key=sl_key, disabled=disabled)
+        new_sl = st.slider(
+            label,
+            min_value=int(lo), max_value=int(hi),
+            value=cur, step=int(step),
+            disabled=disabled,
+            key="wsl_" + key,          # 表示専用キー（書き込み禁止）
+        )
     with col_nb:
         st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
-        st.number_input(
-            "##nb" + key,
+        new_nb = st.number_input(
+            "##" + key,
             min_value=int(lo), max_value=int(hi),
-            value=int(st.session_state[sl_key]),   # ← 常にスライダーと同じ値
-            step=int(step),
-            key=nb_key,
-            on_change=_nb_changed,
-            args=(sl_key, nb_key, int(lo), int(hi), int(step)),
+            value=cur, step=int(step),
             disabled=disabled,
             label_visibility="collapsed",
+            key="wnb_" + key,          # 表示専用キー
         )
 
-    return int(st.session_state[sl_key])
+    # どちらが変わっても val_ を更新（Streamlit は変更があれば自動rerun）
+    if new_sl != cur:
+        st.session_state[vk] = int(new_sl)
+    elif new_nb != cur:
+        st.session_state[vk] = int(new_nb)
+
+    return int(st.session_state[vk])
 
 
 def linked_float(label, lo, hi, default, step, key, fmt="%.3f", disabled=False):
-    """小数スライダー＋数値入力 連動"""
-    sl_key = "sl_" + key
-    nb_key = "nb_" + key
+    """小数スライダー＋数値入力 連動（key なし方式）"""
+    vk = "val_" + key
+    if vk not in st.session_state:
+        st.session_state[vk] = float(clamp(default, lo, hi))
+    cur = float(clamp(st.session_state[vk], lo, hi))
 
-    if sl_key not in st.session_state:
-        st.session_state[sl_key] = float(clamp(default, lo, hi))
-
-    # スライダーは整数スケール（精度管理）
-    scale  = round(1.0 / step)
-    lo_i   = int(round(lo * scale))
-    hi_i   = int(round(hi * scale))
-    cur_i  = int(round(float(st.session_state[sl_key]) * scale))
-    cur_i  = clamp(cur_i, lo_i, hi_i)
-
-    def _sl_float_changed(sk, sc):
-        st.session_state[sk] = st.session_state[sk] / sc   # スライダーは整数→小数変換
-
-    def _nb_float_changed(sk, nk, lo_, hi_):
-        raw = st.session_state.get(nk, None)
-        if raw is not None:
-            st.session_state[sk] = float(clamp(raw, lo_, hi_))
+    # スライダーは整数スケールで管理（浮動小数精度ズレ回避）
+    scale = round(1.0 / step)
+    lo_i  = int(round(lo  * scale))
+    hi_i  = int(round(hi  * scale))
+    cur_i = int(round(cur * scale))
+    cur_i = clamp(cur_i, lo_i, hi_i)
 
     col_sl, col_nb = st.columns([3, 1])
     with col_sl:
-        # スライダーは整数スケールで動作させ、on_change で小数に戻す
-        st.slider(label, min_value=lo_i, max_value=hi_i,
-                  value=cur_i, step=1,
-                  key=sl_key,
-                  on_change=_sl_float_changed, args=(sl_key, scale),
-                  disabled=disabled)
-        # スライダー変更直後は整数のまま残るので小数に変換して読む
-        raw_sl = st.session_state[sl_key]
-        if isinstance(raw_sl, (int, np.integer)):
-            st.session_state[sl_key] = raw_sl / scale
-
+        new_sl_i = st.slider(
+            label,
+            min_value=lo_i, max_value=hi_i,
+            value=cur_i, step=1,
+            disabled=disabled,
+            key="wsl_" + key,
+        )
     with col_nb:
         st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
-        st.number_input(
-            "##nb" + key,
+        new_nb = st.number_input(
+            "##" + key,
             min_value=float(lo), max_value=float(hi),
-            value=float(st.session_state[sl_key]),
-            step=float(step), format=fmt,
-            key=nb_key,
-            on_change=_nb_float_changed,
-            args=(sl_key, nb_key, lo, hi),
+            value=cur, step=float(step), format=fmt,
             disabled=disabled,
             label_visibility="collapsed",
+            key="wnb_" + key,
         )
 
-    return float(st.session_state[sl_key])
+    new_sl = new_sl_i / scale
+    if abs(new_sl - cur) > step * 0.01:
+        st.session_state[vk] = new_sl
+    elif abs(float(new_nb) - cur) > step * 0.01:
+        st.session_state[vk] = float(new_nb)
+
+    return float(st.session_state[vk])
 
 
 # ══════════════════════════════════════════════════════════
