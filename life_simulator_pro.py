@@ -1,5 +1,6 @@
 import os
 import time
+import glob
 import streamlit as st
 
 st.set_page_config(
@@ -14,73 +15,46 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-import glob
 
-# ══════════════════════════════════════════════════════════
-#  日本語フォント設定（ファイルパス直接指定方式）
-# ══════════════════════════════════════════════════════════
-def _setup_jp_font():
-    # まずファイルで直接探す（Streamlit Cloud 対応）
-    path_patterns = [
-        "/usr/share/fonts/**/NotoSansCJK*.otf",
-        "/usr/share/fonts/**/NotoSansCJK*.ttc",
-        "/usr/share/fonts/**/Noto*CJK*JP*.otf",
-        "/usr/share/fonts/**/IPAexGothic*.ttf",
-        "/usr/share/fonts/**/*Gothic*.ttf",
-    ]
-    for pat in path_patterns:
+# ── フォント設定 ──────────────────────────────────────────
+def _setup_font():
+    for pat in ["/usr/share/fonts/**/NotoSansCJK*.otf",
+                "/usr/share/fonts/**/NotoSansCJK*.ttc",
+                "/usr/share/fonts/**/IPAexGothic*.ttf"]:
         hits = glob.glob(pat, recursive=True)
         if hits:
             try:
                 fm.fontManager.addfont(hits[0])
-                prop = fm.FontProperties(fname=hits[0])
-                matplotlib.rcParams["font.family"] = prop.get_name()
+                matplotlib.rcParams["font.family"] = fm.FontProperties(fname=hits[0]).get_name()
                 return
             except Exception:
-                continue
-
-    # 名前で探す（Mac / Windows ローカル）
-    candidates = [
-        "Noto Sans CJK JP", "IPAexGothic", "IPAGothic",
-        "Hiragino Sans", "Yu Gothic", "Meiryo", "MS Gothic",
-    ]
-    available = {f.name for f in fm.fontManager.ttflist}
-    for name in candidates:
-        if name in available:
+                pass
+    for name in ["Hiragino Sans", "Yu Gothic", "Meiryo", "MS Gothic"]:
+        if name in {f.name for f in fm.fontManager.ttflist}:
             matplotlib.rcParams["font.family"] = name
             return
-
-    matplotlib.rcParams["font.family"] = "DejaVu Sans"
-
-_setup_jp_font()
+_setup_font()
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# ══════════════════════════════════════════════════════════
-#  スタイル
-# ══════════════════════════════════════════════════════════
+# ── スタイル ──────────────────────────────────────────────
 st.markdown("""
 <style>
-  .sim-title {font-size:32px;font-weight:900;color:#1a1a2e;}
-  .sim-sub   {color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"] {min-width:380px !important;max-width:460px !important;}
-  section[data-testid="stSidebar"] label {font-size:14px !important;font-weight:600 !important;}
-  .hint {color:#777;font-size:12px;margin-top:6px;}
-  div[data-testid="metric-container"] {
-    background:#f8f9ff;border:1px solid #dde3ff;
-    border-radius:12px;padding:10px 14px;
-  }
+  .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
+  .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
+  section[data-testid="stSidebar"]{min-width:400px !important;max-width:480px !important;}
+  section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
+  .hint{color:#777;font-size:12px;margin-top:4px;}
+  .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
+               padding:10px 16px;margin-top:8px;font-size:13px;line-height:1.9;}
+  div[data-testid="metric-container"]{
+    background:#f8f9ff;border:1px solid #dde3ff;border-radius:12px;padding:10px 14px;}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="sim-title">💰 老後資産シミュレーター PRO2</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sim-sub">給与・年金・生活費・iDeCo・NISA・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>',
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="sim-sub">給与・年金・生活費・iDeCo・NISA・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>', unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════
-#  パスワードゲート
-# ══════════════════════════════════════════════════════════
+# ── パスワードゲート ──────────────────────────────────────
 def get_pro_password():
     try:
         if "PRO_PASSWORD" in st.secrets:
@@ -101,191 +75,168 @@ def password_gate():
         return
     with st.sidebar:
         st.header("購入者ログイン")
-        pw    = st.text_input("購入者用パスワード", type="password")
-        login = st.button("ログイン", use_container_width=True)
+        pw = st.text_input("購入者用パスワード", type="password")
+        if st.button("ログイン", use_container_width=True):
+            if pw == PRO_PASSWORD:
+                st.session_state.pro_authed = True
+                time.sleep(0.3); st.rerun()
+            else:
+                st.error("パスワードが違います。")
         st.caption("※ note 購入者限定のパスワードです。")
-    if login:
-        if pw == PRO_PASSWORD:
-            st.session_state.pro_authed = True
-            time.sleep(0.3)
-            st.rerun()
-        else:
-            st.error("パスワードが違います。")
     st.stop()
 
 password_gate()
 
-# ══════════════════════════════════════════════════════════
-#  セッション初期化
-# ══════════════════════════════════════════════════════════
-for _k, _v in [("locked", False), ("locked_params", None), ("sim_result", None)]:
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
+# ── セッション初期化 ──────────────────────────────────────
+for k, v in [("locked", False), ("locked_params", None), ("sim_result", None)]:
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# ── ユーティリティ ────────────────────────────────────────
+def yen_to_man(x): return x / 10_000.0
+def clamp(x, lo, hi): return max(lo, min(hi, x))
+def fmt_man(x): return f"{int(x/10000):,} 万円"
 
 # ══════════════════════════════════════════════════════════
-#  ユーティリティ
+#  スライダー ＋ 数値入力 連動ウィジェット
+#
+#  【確実に動く仕組み】
+#   スライダーは key="sl_{key}" で管理。
+#   number_input は key なし・value= に session_state["sl_{key}"] を渡す。
+#   number_input が変更されたら on_change で session_state["sl_{key}"] を
+#   上書きして st.rerun() → スライダーが新値で再描画される。
+#   スライダーが変更されたら Streamlit が自動 rerun →
+#   number_input の value= が新しい session_state["sl_{key}"] になる。
 # ══════════════════════════════════════════════════════════
-def yen_to_man(x):
-    return x / 10_000.0
 
-def clamp_int(x, lo, hi):
-    return int(max(lo, min(hi, int(x))))
+def _nb_changed(sl_key, nb_tmp_key, lo, hi, step):
+    """number_input 変更時: 値を sl_key に書き戻す"""
+    raw = st.session_state.get(nb_tmp_key, None)
+    if raw is not None:
+        st.session_state[sl_key] = clamp(raw, lo, hi)
 
-def fmt_man(x):
-    return f"{int(x / 10000):,} 万円"
-
-# ══════════════════════════════════════════════════════════
-#  スライダー＋数値入力 連動ウィジェット
-#  【設計方針】
-#   - slider と number_input は独立したウィジェットで、
-#     同一の session_state キーに値を書き込む。
-#   - Streamlit は同一キーを複数ウィジェットに割り当て不可なので
-#     _sl / _nb の別キーにし、on_change で親キーへ同期する。
-#   - disabled=True のとき number_input も disabled にする。
-# ══════════════════════════════════════════════════════════
-def _sync_sl(key):
-    st.session_state[key] = st.session_state[key + "_sl"]
-
-def _sync_nb(key):
-    st.session_state[key] = st.session_state[key + "_nb"]
-
-def slider_num(label, lo, hi, default, step, key,
-               fmt="%d", unit="", disabled=False):
+def linked_int(label, lo, hi, default, step, key, disabled=False):
     """整数スライダー＋数値入力 連動"""
-    if key not in st.session_state:
-        st.session_state[key] = int(default)
+    sl_key  = "sl_" + key
+    nb_key  = "nb_" + key
 
-    val = int(st.session_state[key])
-    val = max(int(lo), min(int(hi), val))
+    # スライダーキー初期化
+    if sl_key not in st.session_state:
+        st.session_state[sl_key] = int(clamp(default, lo, hi))
+
+    cur = int(st.session_state[sl_key])
 
     col_sl, col_nb = st.columns([3, 1])
     with col_sl:
-        st.slider(
-            label + (f"（{unit}）" if unit else ""),
-            min_value=int(lo), max_value=int(hi),
-            value=val, step=int(step),
-            key=key + "_sl",
-            on_change=_sync_sl, args=(key,),
-            disabled=disabled,
-        )
+        st.slider(label, min_value=int(lo), max_value=int(hi),
+                  value=cur, step=int(step),
+                  key=sl_key, disabled=disabled)
     with col_nb:
         st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
         st.number_input(
-            "##" + key,
+            "##nb" + key,
             min_value=int(lo), max_value=int(hi),
-            value=val, step=int(step),
-            key=key + "_nb",
-            on_change=_sync_nb, args=(key,),
+            value=int(st.session_state[sl_key]),   # ← 常にスライダーと同じ値
+            step=int(step),
+            key=nb_key,
+            on_change=_nb_changed,
+            args=(sl_key, nb_key, int(lo), int(hi), int(step)),
             disabled=disabled,
             label_visibility="collapsed",
         )
 
-    return int(st.session_state[key])
+    return int(st.session_state[sl_key])
 
 
-def slider_num_float(label, lo, hi, default, step, key,
-                     fmt="%.3f", unit="", disabled=False):
-    """小数スライダー＋数値入力 連動（インフレ率・リターン等）"""
-    if key not in st.session_state:
-        st.session_state[key] = float(default)
+def linked_float(label, lo, hi, default, step, key, fmt="%.3f", disabled=False):
+    """小数スライダー＋数値入力 連動"""
+    sl_key = "sl_" + key
+    nb_key = "nb_" + key
 
-    # 整数スケールで管理（精度ズレ防止）
-    scale   = round(1.0 / step)
-    lo_i    = int(round(lo   * scale))
-    hi_i    = int(round(hi   * scale))
-    step_i  = 1
-    val_i   = int(round(float(st.session_state[key]) * scale))
-    val_i   = max(lo_i, min(hi_i, val_i))
+    if sl_key not in st.session_state:
+        st.session_state[sl_key] = float(clamp(default, lo, hi))
 
-    def sync_sl_f(k, sc):
-        st.session_state[k] = st.session_state[k + "_sl"] / sc
+    # スライダーは整数スケール（精度管理）
+    scale  = round(1.0 / step)
+    lo_i   = int(round(lo * scale))
+    hi_i   = int(round(hi * scale))
+    cur_i  = int(round(float(st.session_state[sl_key]) * scale))
+    cur_i  = clamp(cur_i, lo_i, hi_i)
 
-    def sync_nb_f(k):
-        st.session_state[k] = st.session_state[k + "_nb"]
+    def _sl_float_changed(sk, sc):
+        st.session_state[sk] = st.session_state[sk] / sc   # スライダーは整数→小数変換
+
+    def _nb_float_changed(sk, nk, lo_, hi_):
+        raw = st.session_state.get(nk, None)
+        if raw is not None:
+            st.session_state[sk] = float(clamp(raw, lo_, hi_))
 
     col_sl, col_nb = st.columns([3, 1])
     with col_sl:
-        raw = st.slider(
-            label + (f"（{unit}）" if unit else ""),
-            min_value=lo_i, max_value=hi_i,
-            value=val_i, step=step_i,
-            key=key + "_sl",
-            on_change=sync_sl_f, args=(key, scale),
-            disabled=disabled,
-            format=f"%.{len(str(step).split('.')[-1])}f" if '.' in str(step) else "%d",
-        )
-        # スライダーが動いたとき即時反映（on_change前の表示ズレ防止）
-        st.session_state[key] = raw / scale
+        # スライダーは整数スケールで動作させ、on_change で小数に戻す
+        st.slider(label, min_value=lo_i, max_value=hi_i,
+                  value=cur_i, step=1,
+                  key=sl_key,
+                  on_change=_sl_float_changed, args=(sl_key, scale),
+                  disabled=disabled)
+        # スライダー変更直後は整数のまま残るので小数に変換して読む
+        raw_sl = st.session_state[sl_key]
+        if isinstance(raw_sl, (int, np.integer)):
+            st.session_state[sl_key] = raw_sl / scale
 
     with col_nb:
         st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
         st.number_input(
-            "##" + key,
+            "##nb" + key,
             min_value=float(lo), max_value=float(hi),
-            value=float(st.session_state[key]),
-            step=float(step),
-            format=fmt,
-            key=key + "_nb",
-            on_change=sync_nb_f, args=(key,),
+            value=float(st.session_state[sl_key]),
+            step=float(step), format=fmt,
+            key=nb_key,
+            on_change=_nb_float_changed,
+            args=(sl_key, nb_key, lo, hi),
             disabled=disabled,
             label_visibility="collapsed",
         )
 
-    return float(st.session_state[key])
+    return float(st.session_state[sl_key])
 
 
 # ══════════════════════════════════════════════════════════
 #  シミュレーション本体
 # ══════════════════════════════════════════════════════════
 def simulate_path(params, rng):
-    start_age = params["start_age"]
-    end_age   = params["end_age"]
-    years     = np.arange(start_age, end_age + 1)
-
+    years = np.arange(params["start_age"], params["end_age"] + 1)
     cash  = params["initial_cash"]
     ideco = params["initial_ideco"]
     nisa  = params["initial_nisa"]
-
     total_h=[]; cash_h=[]; ideco_h=[]; nisa_h=[]
     ic_h=[]; nc_h=[]; iw_h=[]; nw_h=[]
     ruined=False; ruin_age=None
-    mu=params["mean_return"]; sigma=params["volatility"]
-    infl=params["inflation_rate"]
+    mu=params["mean_return"]; sigma=params["volatility"]; infl=params["inflation_rate"]
 
     for age in years:
-        infl_factor = (1.0 + infl) ** int(age - start_age)
+        inf_f = (1.0 + infl) ** int(age - params["start_age"])
         income = 0.0
-        if age < params["retire_age"]:
-            income += params["salary_net"]
-        if age >= params["pension_start_age"]:
-            income += params["pension_annual"]
+        if age < params["retire_age"]:       income += params["salary_net"]
+        if age >= params["pension_start_age"]: income += params["pension_annual"]
 
-        base_living = params["living_before"] if age < params["retire_age"] else params["living_after"]
-        available   = cash + income - base_living * infl_factor
+        base_lv  = params["living_before"] if age < params["retire_age"] else params["living_after"]
+        available = cash + income - base_lv * inf_f
 
-        ic=nc=0.0
-        if (params["ideco_on"]
-                and params["ideco_contrib_start"] <= age <= params["ideco_contrib_end"]
-                and available > 0):
-            ic = min(params["ideco_contrib_monthly"] * 12, available)
-            ideco += ic; available -= ic
-        if (params["nisa_on"]
-                and params["nisa_contrib_start"] <= age <= params["nisa_contrib_end"]
-                and available > 0):
-            nc = min(params["nisa_contrib_monthly"] * 12, available)
-            nisa += nc; available -= nc
+        ic = nc = 0.0
+        if params["ideco_on"] and params["ideco_contrib_start"] <= age <= params["ideco_contrib_end"] and available > 0:
+            ic = min(params["ideco_contrib_monthly"] * 12, available); ideco += ic; available -= ic
+        if params["nisa_on"] and params["nisa_contrib_start"] <= age <= params["nisa_contrib_end"] and available > 0:
+            nc = min(params["nisa_contrib_monthly"] * 12, available); nisa += nc; available -= nc
 
-        cash = available  # 現金はリターン非連動
+        cash = available   # 現金はリターン非連動
 
-        iw=nw=0.0
+        iw = nw = 0.0
         if params["ideco_on"] and age >= params["ideco_withdraw_start"] and ideco > 0:
-            iw = min(params["ideco_withdraw_annual"], ideco)
-            ideco -= iw; cash += iw
+            iw = min(params["ideco_withdraw_annual"], ideco); ideco -= iw; cash += iw
         if params["nisa_on"] and age >= params["nisa_withdraw_start"] and nisa > 0:
-            if params["nisa_withdraw_mode"] == "定率":
-                nw = nisa * params["nisa_withdraw_rate"]
-            else:
-                nw = min(params["nisa_withdraw_annual"], nisa)
+            nw = (nisa * params["nisa_withdraw_rate"] if params["nisa_withdraw_mode"] == "定率"
+                  else min(params["nisa_withdraw_annual"], nisa))
             nw = min(nw, nisa); nisa -= nw; cash += nw
 
         for ev in params["events"]:
@@ -293,130 +244,110 @@ def simulate_path(params, rng):
                 cash += ev["amount"] if ev["direction"] == "収入" else -abs(ev["amount"])
 
         r = rng.normal(mu, sigma)
-        ideco *= (1.0 + r); nisa  *= (1.0 + r)
-        total  = cash + ideco + nisa
+        ideco *= (1.0 + r); nisa *= (1.0 + r)
+        total = cash + ideco + nisa
+        if not ruined and total <= 0: ruined=True; ruin_age=int(age)
 
-        if (not ruined) and (total <= 0):
-            ruined=True; ruin_age=int(age)
+        total_h.append(total); cash_h.append(cash); ideco_h.append(ideco); nisa_h.append(nisa)
+        ic_h.append(ic); nc_h.append(nc); iw_h.append(iw); nw_h.append(nw)
 
-        total_h.append(total); cash_h.append(cash)
-        ideco_h.append(ideco); nisa_h.append(nisa)
-        ic_h.append(ic); nc_h.append(nc)
-        iw_h.append(iw); nw_h.append(nw)
-
-    return dict(
-        years=years,
-        total=np.array(total_h), cash=np.array(cash_h),
-        ideco=np.array(ideco_h),  nisa=np.array(nisa_h),
-        ic=np.array(ic_h), nc=np.array(nc_h),
-        iw=np.array(iw_h), nw=np.array(nw_h),
-        ruined=ruined, ruin_age=ruin_age,
-    )
+    return dict(years=years,
+                total=np.array(total_h), cash=np.array(cash_h),
+                ideco=np.array(ideco_h),  nisa=np.array(nisa_h),
+                ic=np.array(ic_h), nc=np.array(nc_h),
+                iw=np.array(iw_h), nw=np.array(nw_h),
+                ruined=ruined, ruin_age=ruin_age)
 
 # ══════════════════════════════════════════════════════════
-#  サイドバー入力
+#  サイドバー
 # ══════════════════════════════════════════════════════════
 locked = st.session_state.locked
 
 with st.sidebar:
     st.header("⚙️ シミュレーション設定")
-    colA, colB = st.columns(2)
-    with colA:
-        lock_clicked   = st.button("🔒 設定を確定", use_container_width=True, disabled=locked)
-    with colB:
-        unlock_clicked = st.button("🔓 解除", use_container_width=True, disabled=(not locked))
+    cA, cB = st.columns(2)
+    with cA: lock_clicked   = st.button("🔒 設定を確定", use_container_width=True, disabled=locked)
+    with cB: unlock_clicked = st.button("🔓 解除",       use_container_width=True, disabled=not locked)
     st.caption("ロック中は入力欄が固定されます。")
 
-    # 期間
     st.subheader("📅 期間")
-    start_age = slider_num("開始年齢",         20, 110, 60, 1, "v_start_age", disabled=locked)
-    end_age   = slider_num("終了年齢（寿命）", 20, 110, 95, 1, "v_end_age",   disabled=locked)
+    start_age = linked_int("開始年齢",         20, 110, 60, 1, "start_age", disabled=locked)
+    end_age   = linked_int("終了年齢（寿命）", 20, 110, 95, 1, "end_age",   disabled=locked)
     end_age   = max(end_age, start_age + 1)
 
-    # 初期資産
     st.subheader("🏦 初期資産（円）")
-    initial_cash  = slider_num("現金・預金（初期）", 0, 1_000_000_000, 10_000_000, 500_000, "v_cash",  unit="円", disabled=locked)
-    initial_ideco = slider_num("iDeCo 残高（初期）", 0, 1_000_000_000, 0,          500_000, "v_ideco", unit="円", disabled=locked)
-    initial_nisa  = slider_num("NISA 残高（初期）",  0, 1_000_000_000, 0,          500_000, "v_nisa",  unit="円", disabled=locked)
+    initial_cash  = linked_int("現金・預金（初期）", 0, 1_000_000_000, 10_000_000, 500_000, "ini_cash",  disabled=locked)
+    initial_ideco = linked_int("iDeCo 残高（初期）", 0, 1_000_000_000, 0,          500_000, "ini_ideco", disabled=locked)
+    initial_nisa  = linked_int("NISA 残高（初期）",  0, 1_000_000_000, 0,          500_000, "ini_nisa",  disabled=locked)
 
-    # 収入
     st.subheader("💼 収入")
-    salary_net        = slider_num("給与手取り（年額）",    0, 30_000_000, 3_000_000, 100_000, "v_salary",  unit="円", disabled=locked)
-    retire_age        = slider_num("退職年齢",              20, 110,       65,        1,       "v_ret_age",           disabled=locked)
-    pension_start_age = slider_num("公的年金 受給開始年齢", 60, 90,        70,        1,       "v_pen_age",           disabled=locked)
-    pension_annual    = slider_num("公的年金（年額）",      0, 10_000_000, 1_200_000, 50_000,  "v_pension", unit="円", disabled=locked)
+    salary_net        = linked_int("給与手取り（年額）",    0, 30_000_000, 3_000_000, 100_000, "salary",    disabled=locked)
+    retire_age        = linked_int("退職年齢",              20, 110,       65,        1,       "ret_age",   disabled=locked)
+    pension_start_age = linked_int("公的年金 受給開始年齢", 60, 90,        70,        1,       "pen_age",   disabled=locked)
+    pension_annual    = linked_int("公的年金（年額）",      0, 10_000_000, 1_200_000, 50_000,  "pension",   disabled=locked)
 
-    # 生活費
     st.subheader("🛒 生活費（年額）")
-    living_before = slider_num("退職前 生活費", 0, 20_000_000, 2_500_000, 50_000, "v_liv_b", unit="円", disabled=locked)
-    living_after  = slider_num("退職後 生活費", 0, 20_000_000, 2_000_000, 50_000, "v_liv_a", unit="円", disabled=locked)
+    living_before = linked_int("退職前 生活費", 0, 20_000_000, 2_500_000, 50_000, "liv_b", disabled=locked)
+    living_after  = linked_int("退職後 生活費", 0, 20_000_000, 2_000_000, 50_000, "liv_a", disabled=locked)
 
-    # インフレ率
     st.subheader("📈 インフレ率（年率）")
-    inflation_rate = slider_num_float("インフレ率", 0.0, 0.10, 0.01, 0.005, "v_infl", disabled=locked)
+    inflation_rate = linked_float("インフレ率", 0.0, 0.10, 0.01, 0.005, "infl", disabled=locked)
 
-    # iDeCo
     st.subheader("🏛️ iDeCo（積立 → 受取）")
     ideco_on              = st.checkbox("iDeCo を使う", value=True, disabled=locked)
-    ideco_contrib_start   = slider_num("積立開始年齢", 20, 110,        60,      1,     "v_ide_cs",           disabled=locked)
-    ideco_contrib_end     = slider_num("積立終了年齢", 20, 110,        65,      1,     "v_ide_ce",           disabled=locked)
-    ideco_contrib_monthly = slider_num("積立（月額）", 0,  300_000,    23_000,  1_000, "v_ide_cm", unit="円", disabled=locked)
-    ideco_withdraw_start  = slider_num("受取開始年齢", 20, 110,        65,      1,     "v_ide_ws",           disabled=locked)
-    ideco_withdraw_annual = slider_num("受取（年額）", 0,  20_000_000, 600_000, 50_000,"v_ide_wa", unit="円", disabled=locked)
+    ideco_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,      1,      "ide_cs", disabled=locked)
+    ideco_contrib_end     = linked_int("積立終了年齢", 20, 110,        65,      1,      "ide_ce", disabled=locked)
+    ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked)
+    ideco_withdraw_start  = linked_int("受取開始年齢", 20, 110,        65,      1,      "ide_ws", disabled=locked)
+    ideco_withdraw_annual = linked_int("受取（年額）", 0,  20_000_000, 600_000, 50_000, "ide_wa", disabled=locked)
 
-    # NISA
     st.subheader("📊 NISA（積立 → 取崩）")
     nisa_on              = st.checkbox("NISA を使う", value=True, disabled=locked)
-    nisa_contrib_start   = slider_num("積立開始年齢", 20, 110,        60,     1,     "v_nisa_cs",           disabled=locked)
-    nisa_contrib_end     = slider_num("積立終了年齢", 20, 110,        75,     1,     "v_nisa_ce",           disabled=locked)
-    nisa_contrib_monthly = slider_num("積立（月額）", 0,  500_000,    60_000, 1_000, "v_nisa_cm", unit="円", disabled=locked)
-    nisa_withdraw_start  = slider_num("取崩開始年齢", 20, 110,        70,     1,     "v_nisa_ws",           disabled=locked)
+    nisa_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,     1,     "nisa_cs", disabled=locked)
+    nisa_contrib_end     = linked_int("積立終了年齢", 20, 110,        75,     1,     "nisa_ce", disabled=locked)
+    nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked)
+    nisa_withdraw_start  = linked_int("取崩開始年齢", 20, 110,        70,     1,     "nisa_ws", disabled=locked)
 
     nisa_withdraw_mode = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked)
     if nisa_withdraw_mode == "定額":
-        nisa_withdraw_annual = slider_num("取崩（年額）", 0, 50_000_000, 1_000_000, 50_000, "v_nisa_wa", unit="円", disabled=locked)
+        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 50_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked)
         nisa_withdraw_rate   = 0.04
     else:
-        nisa_withdraw_rate   = slider_num_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "v_nisa_wr", disabled=locked)
+        nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked)
         nisa_withdraw_annual = 0
 
-    # イベント 12件
     st.subheader("🎯 一時イベント（最大12件）")
-    _ev_defaults = [
+    _ev_def = [
         (True,  70, 3_000_000, "支出", "住宅リフォーム"),
         (True,  75, 5_000_000, "支出", "介護費用"),
         (False, 65, 2_000_000, "収入", "退職金"),
     ]
     events = []
     for i in range(1, 13):
-        d = _ev_defaults[i - 1] if i <= 3 else (False, 70, 0, "支出", f"イベント{i}")
+        d = _ev_def[i-1] if i <= 3 else (False, 70, 0, "支出", f"イベント{i}")
         with st.expander(f"イベント {i}", expanded=(i <= 3)):
             on        = st.checkbox("有効", value=d[0], disabled=locked, key=f"ev_on_{i}")
             label     = st.text_input("名称", value=d[4], disabled=locked, key=f"ev_lbl_{i}")
-            ev_age    = slider_num("発生年齢", 20, 110, d[1], 1, f"v_ev_age_{i}", disabled=locked)
+            ev_age    = linked_int("発生年齢", 20, 110, d[1], 1, f"ev_age_{i}", disabled=locked)
             direction = st.radio("種別", ["支出", "収入"],
-                                  index=(0 if d[3] == "支出" else 1),
+                                  index=0 if d[3]=="支出" else 1,
                                   horizontal=True, disabled=locked, key=f"ev_dir_{i}")
-            amount    = slider_num("金額（円）", 0, 200_000_000, d[2], 100_000,
-                                   f"v_ev_amt_{i}", unit="円", disabled=locked)
-        events.append({"on": bool(on), "label": label, "age": int(ev_age),
-                        "direction": direction, "amount": int(amount)})
+            amount    = linked_int("金額（円）", 0, 200_000_000, d[2], 100_000, f"ev_amt_{i}", disabled=locked)
+        events.append({"on":bool(on), "label":label, "age":int(ev_age),
+                        "direction":direction, "amount":int(amount)})
 
-    # モンテカルロ設定
     st.subheader("🎲 モンテカルロ設定")
-    trials            = slider_num("試行回数",                   200,  3000, 1000, 100,  "v_trials",    disabled=locked)
-    mean_return       = slider_num_float("期待リターン（年率）", 0.0,  0.12, 0.04, 0.005,"v_mu",        disabled=locked)
-    volatility        = slider_num_float("変動率（年率）",       0.0,  0.35, 0.12, 0.01, "v_sigma",     disabled=locked)
-    ruin_threshold    = slider_num("破綻確率しきい値（%）",      0,    100,  20,   5,    "v_ruin_thr",  disabled=locked)
+    trials            = linked_int("試行回数",                   200, 3000, 1000, 100,  "trials",   disabled=locked)
+    mean_return       = linked_float("期待リターン（年率）",     0.0, 0.12, 0.04, 0.005,"mu",       disabled=locked)
+    volatility        = linked_float("変動率（年率）",           0.0, 0.35, 0.12, 0.01, "sigma",    disabled=locked)
+    ruin_threshold    = linked_int("破綻確率しきい値（%）",      0,   100,  20,   5,    "ruin_thr", disabled=locked)
     show_sample_paths = st.checkbox("サンプル軌跡を表示", value=True, disabled=locked)
-    sample_paths_n    = slider_num("サンプル表示本数",           10,   200,  80,   10,   "v_sp_n",      disabled=locked)
+    sample_paths_n    = linked_int("サンプル表示本数",           10,  200,  80,   10,   "sp_n",     disabled=locked)
 
-# ══════════════════════════════════════════════════════════
-#  params 構築
-# ══════════════════════════════════════════════════════════
+# ── params 構築 ───────────────────────────────────────────
 def build_params():
-    s = clamp_int(start_age, 20, 110)
-    e = clamp_int(end_age, s, 110)
+    s = int(clamp(start_age, 20, 110))
+    e = int(clamp(end_age, s, 110))
     return dict(
         start_age=s, end_age=e,
         initial_cash=float(initial_cash), initial_ideco=float(initial_ideco), initial_nisa=float(initial_nisa),
@@ -446,102 +377,88 @@ def build_params():
     )
 
 if unlock_clicked:
-    st.session_state.locked = False
-    st.session_state.locked_params = None
-    st.rerun()
+    st.session_state.locked = False; st.session_state.locked_params = None; st.rerun()
 if lock_clicked:
-    st.session_state.locked_params = build_params()
-    st.session_state.locked = True
-    st.rerun()
+    st.session_state.locked_params = build_params(); st.session_state.locked = True; st.rerun()
 
 params = (st.session_state.locked_params
           if st.session_state.locked and st.session_state.locked_params
           else build_params())
 
-# ══════════════════════════════════════════════════════════
-#  実行ボタン
-# ══════════════════════════════════════════════════════════
+# ── 実行ボタン ────────────────────────────────────────────
 run_clicked = st.button("▶ シミュレーション実行", use_container_width=True, type="primary")
 
 if run_clicked:
     years_arr = np.arange(params["start_age"], params["end_age"] + 1)
-    n_trials  = int(params["trials"])
-    n_sp      = int(params["sample_paths_n"])
 
-    # ── サンプル軌跡（別seed）──────────────────────────────
     sample_paths_total = []
-    if params["show_sample_paths"] and n_sp > 0:
+    if params["show_sample_paths"] and params["sample_paths_n"] > 0:
         rng_s = np.random.default_rng(seed=7)
-        for _ in range(min(n_sp, n_trials)):
+        for _ in range(min(int(params["sample_paths_n"]), int(params["trials"]))):
             out = simulate_path(params, rng_s)
             sample_paths_total.append(out["total"].copy())
 
-    # ── メインモンテカルロ ────────────────────────────────
     rng = np.random.default_rng(seed=42)
     total_mat=[]; cash_mat=[]; ideco_mat=[]; nisa_mat=[]
     ic_mat=[]; nc_mat=[]; iw_mat=[]; nw_mat=[]
-    ruin_first_age=[]; ruin_counts=np.zeros(len(years_arr), dtype=float)
+    ruin_ages=[]; ruin_counts=np.zeros(len(years_arr), dtype=float)
 
-    for _ in range(n_trials):
+    for _ in range(int(params["trials"])):
         out = simulate_path(params, rng)
         total_mat.append(out["total"]); cash_mat.append(out["cash"])
         ideco_mat.append(out["ideco"]); nisa_mat.append(out["nisa"])
         ic_mat.append(out["ic"]); nc_mat.append(out["nc"])
         iw_mat.append(out["iw"]); nw_mat.append(out["nw"])
         if out["ruined"] and out["ruin_age"] is not None:
-            ruin_first_age.append(out["ruin_age"])
+            ruin_ages.append(out["ruin_age"])
             ruin_counts[np.where(years_arr >= out["ruin_age"])[0]] += 1
         else:
-            ruin_first_age.append(np.nan)
+            ruin_ages.append(np.nan)
 
-    total_mat = np.array(total_mat)
-    cash_mat  = np.array(cash_mat)
-    ideco_mat = np.array(ideco_mat)
-    nisa_mat  = np.array(nisa_mat)
+    total_mat = np.array(total_mat); cash_mat = np.array(cash_mat)
+    ideco_mat = np.array(ideco_mat); nisa_mat = np.array(nisa_mat)
 
     avg_total = total_mat.mean(axis=0)
     p10_total = np.percentile(total_mat, 10, axis=0)
     p90_total = np.percentile(total_mat, 90, axis=0)
-    avg_cash  = cash_mat.mean(axis=0)
-    avg_ideco = ideco_mat.mean(axis=0)
-    avg_nisa  = nisa_mat.mean(axis=0)
+    avg_cash  = cash_mat.mean(axis=0); avg_ideco = ideco_mat.mean(axis=0); avg_nisa = nisa_mat.mean(axis=0)
 
     final_assets  = total_mat[:, -1]
     survival_rate = float(np.mean(final_assets > 0) * 100)
-    rfa           = np.array(ruin_first_age, dtype=float)
+    rfa           = np.array(ruin_ages, dtype=float)
     ruin_rate     = float(np.mean(np.isfinite(rfa)) * 100)
     median_final  = float(np.median(final_assets))
     p10_final     = float(np.percentile(final_assets, 10))
     p90_final     = float(np.percentile(final_assets, 90))
 
-    ruin_prob     = ruin_counts / float(n_trials) * 100
-    median_ruin   = int(np.nanmedian(rfa)) if np.any(np.isfinite(rfa)) else None
-
-    over_idx      = np.where(ruin_prob >= params["ruin_threshold"])[0]
-    ruin_thr_age  = int(years_arr[over_idx[0]]) if len(over_idx) > 0 else None
+    ruin_prob    = ruin_counts / float(params["trials"]) * 100
+    median_ruin  = int(np.nanmedian(rfa)) if np.any(np.isfinite(rfa)) else None
+    over_idx     = np.where(ruin_prob >= params["ruin_threshold"])[0]
+    ruin_thr_age = int(years_arr[over_idx[0]]) if len(over_idx) > 0 else None
 
     key_events = [
-        {"age": params["retire_age"],        "label": f"退職（{params['retire_age']}歳）",             "color": "#e67e22"},
-        {"age": params["pension_start_age"], "label": f"年金開始（{params['pension_start_age']}歳）",  "color": "#2980b9"},
+        {"age": params["retire_age"],        "label": f"退職（{params['retire_age']}歳）",             "elabel": f"Retire ({params['retire_age']})",     "color": "#e67e22"},
+        {"age": params["pension_start_age"], "label": f"年金開始（{params['pension_start_age']}歳）",  "elabel": f"Pension ({params['pension_start_age']})", "color": "#2980b9"},
     ]
     for ev in params["events"]:
         if ev["on"]:
             sign = "+" if ev["direction"] == "収入" else "-"
             key_events.append({
-                "age":   ev["age"],
-                "label": f"{ev['label']}（{sign}{ev['amount']//10000:,}万円）",
-                "color": "#27ae60" if ev["direction"] == "収入" else "#c0392b",
+                "age":    ev["age"],
+                "label":  f"{ev['label']}（{sign}{ev['amount']//10000:,}万円）",
+                "elabel": f"{ev['label']} ({sign}{ev['amount']//10000:,}M)",
+                "color":  "#27ae60" if ev["direction"] == "収入" else "#c0392b",
             })
     if ruin_thr_age:
         key_events.append({
-            "age": ruin_thr_age,
-            "label": f"⚠ 破綻{params['ruin_threshold']}%超（{ruin_thr_age}歳）",
-            "color": "#8e44ad",
+            "age":    ruin_thr_age,
+            "label":  f"⚠ 破綻{params['ruin_threshold']}%超（{ruin_thr_age}歳）",
+            "elabel": f"Ruin>{params['ruin_threshold']}% ({ruin_thr_age})",
+            "color":  "#8e44ad",
         })
 
     st.session_state.sim_result = dict(
-        years=years_arr,
-        sample_paths_total=sample_paths_total,
+        years=years_arr, sample_paths_total=sample_paths_total,
         avg_total=avg_total, p10_total=p10_total, p90_total=p90_total,
         avg_cash=avg_cash, avg_ideco=avg_ideco, avg_nisa=avg_nisa,
         survival_rate=survival_rate, ruin_rate=ruin_rate,
@@ -551,30 +468,27 @@ if run_clicked:
         avg_ic=np.array(ic_mat).mean(axis=0), avg_nc=np.array(nc_mat).mean(axis=0),
         avg_iw=np.array(iw_mat).mean(axis=0), avg_nw=np.array(nw_mat).mean(axis=0),
         yr_cnt=len(years_arr), key_events=key_events,
-        show_sample_paths=params["show_sample_paths"],
+        show_sp=params["show_sample_paths"],
     )
 
-# ══════════════════════════════════════════════════════════
-#  結果表示
-# ══════════════════════════════════════════════════════════
+# ── 結果表示 ──────────────────────────────────────────────
 result = st.session_state.sim_result
 if result is None:
     st.info("← 左側で設定を入力し、「▶ シミュレーション実行」を押してください。")
     st.stop()
 
-years_arr          = result["years"]
-sample_paths_total = result["sample_paths_total"]
+years_arr = result["years"]
 avg_total=result["avg_total"]; p10_total=result["p10_total"]; p90_total=result["p90_total"]
 avg_cash=result["avg_cash"];   avg_ideco=result["avg_ideco"]; avg_nisa=result["avg_nisa"]
 survival_rate=result["survival_rate"]; ruin_rate=result["ruin_rate"]
 median_final=result["median_final"]; p10_final=result["p10_final"]; p90_final=result["p90_final"]
 ruin_prob=result["ruin_prob"]; median_ruin=result["median_ruin"]
 threshold=result["threshold"]; ruin_thr_age=result["ruin_thr_age"]
-key_events=result["key_events"]
-show_sp=result["show_sample_paths"]
+key_events=result["key_events"]; show_sp=result["show_sp"]
+sample_paths_total=result["sample_paths_total"]
 
 # KPI
-c1, c2, c3, c4 = st.columns(4)
+c1,c2,c3,c4 = st.columns(4)
 c1.metric("資産が残る確率",       f"{survival_rate:.1f}%")
 c2.metric("破綻確率（総資産≤0）", f"{ruin_rate:.1f}%")
 c3.metric("最終資産（中央値）",   fmt_man(median_final))
@@ -589,79 +503,66 @@ else:
 with st.expander("📌 重要変換点", expanded=True):
     cols = st.columns(3)
     for i, ke in enumerate(sorted(key_events, key=lambda x: x["age"])):
-        cols[i % 3].markdown(
+        cols[i%3].markdown(
             f'<span style="color:{ke["color"]};font-weight:700;">● {ke["label"]}</span>',
-            unsafe_allow_html=True,
-        )
+            unsafe_allow_html=True)
 
 st.divider()
 
-# ══════════════════════════════════════════════════════════
-#  グラフ（全幅）
-# ══════════════════════════════════════════════════════════
+# ── グラフ（全幅・英語表記） ──────────────────────────────
 fig = plt.figure(figsize=(18, 10))
 gs  = fig.add_gridspec(2, 1, height_ratios=[3.0, 1.2], hspace=0.28)
 ax  = fig.add_subplot(gs[0])
 ax2 = fig.add_subplot(gs[1])
 
-# サンプル軌跡
 if show_sp and len(sample_paths_total) > 0:
     for sp in sample_paths_total:
         ax.plot(years_arr, yen_to_man(sp), alpha=0.06, linewidth=0.8, color="#8899bb")
 
-# 10–90% 帯
 ax.fill_between(years_arr, yen_to_man(p10_total), yen_to_man(p90_total),
-                alpha=0.20, color="#4c72b0", label="総資産（10〜90%帯）")
-
-# 各資産線
-ax.plot(years_arr, yen_to_man(avg_total), lw=3.0, ls="-",  color="#1a6aff", label="総資産（平均）")
-ax.plot(years_arr, yen_to_man(avg_cash),  lw=2.0, ls="--", color="#e67e22", label="現金・預金（平均）")
-ax.plot(years_arr, yen_to_man(avg_ideco), lw=2.0, ls="-.", color="#27ae60", label="iDeCo（平均）")
-ax.plot(years_arr, yen_to_man(avg_nisa),  lw=2.0, ls=":",  color="#8e44ad", label="NISA（平均）")
+                alpha=0.20, color="#4c72b0", label="Total Assets (10-90%)")
+ax.plot(years_arr, yen_to_man(avg_total), lw=3.0, ls="-",  color="#1a6aff", label="Total (avg)")
+ax.plot(years_arr, yen_to_man(avg_cash),  lw=2.0, ls="--", color="#e67e22", label="Cash (avg)")
+ax.plot(years_arr, yen_to_man(avg_ideco), lw=2.0, ls="-.", color="#27ae60", label="iDeCo (avg)")
+ax.plot(years_arr, yen_to_man(avg_nisa),  lw=2.0, ls=":",  color="#8e44ad", label="NISA (avg)")
 ax.axhline(0, lw=1.4, ls="--", alpha=0.5, color="red")
 
-# 重要変換点 吹き出し
 y_max   = float(yen_to_man(np.max(p90_total)))
 y_min   = float(yen_to_man(np.min(p10_total)))
 y_range = max(abs(y_max - y_min), 1.0)
 plotted_ages = []
 for ke in sorted(key_events, key=lambda x: x["age"]):
     age = ke["age"]
-    if age not in years_arr:
-        continue
-    idx    = int(np.where(years_arr == age)[0][0])
-    y_val  = float(yen_to_man(avg_total[idx]))
+    if age not in years_arr: continue
+    idx   = int(np.where(years_arr == age)[0][0])
+    y_val = float(yen_to_man(avg_total[idx]))
     n_near = sum(1 for a in plotted_ages if abs(a - age) < 4)
     y_off  = y_range * (0.14 + n_near * 0.11)
     plotted_ages.append(age)
-    ax.annotate(
-        ke["label"],
-        xy=(age, y_val), xytext=(age, y_val + y_off),
-        fontsize=9, color=ke["color"], fontweight="bold", ha="center",
-        arrowprops=dict(arrowstyle="->", color=ke["color"], lw=1.2),
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                  edgecolor=ke["color"], alpha=0.88),
-    )
+    ax.annotate(ke["elabel"],
+                xy=(age, y_val), xytext=(age, y_val + y_off),
+                fontsize=9, color=ke["color"], fontweight="bold", ha="center",
+                arrowprops=dict(arrowstyle="->", color=ke["color"], lw=1.2),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                          edgecolor=ke["color"], alpha=0.88))
 
-ax.set_title("老後資産シミュレーター PRO2　モンテカルロ結果", fontsize=15, fontweight="bold", pad=12)
-ax.set_xlabel("年齢", fontsize=13)
-ax.set_ylabel("資産額（万円）", fontsize=13)
+ax.set_title("Retirement Asset Simulator PRO2 - Monte Carlo", fontsize=15, fontweight="bold", pad=12)
+ax.set_xlabel("Age", fontsize=13)
+ax.set_ylabel("Assets (10,000 JPY)", fontsize=13)
 ax.grid(True, alpha=0.22)
 ax.legend(ncols=2, fontsize=11, loc="upper right")
 ax.tick_params(labelsize=12)
 
-# 破綻確率
-ax2.plot(years_arr, ruin_prob, lw=2.5, color="#c0392b", label="破綻確率（累積）")
-ax2.axhline(threshold, ls="--", lw=1.5, alpha=0.8, color="#8e44ad", label=f"しきい値 {threshold}%")
+ax2.plot(years_arr, ruin_prob, lw=2.5, color="#c0392b", label="Ruin Probability")
+ax2.axhline(threshold, ls="--", lw=1.5, alpha=0.8, color="#8e44ad", label=f"Threshold {threshold}%")
 mask = ruin_prob >= threshold
 ax2.fill_between(years_arr, 0, 100, where=mask, alpha=0.10, color="#c0392b")
 if ruin_thr_age is not None:
     ax2.axvline(ruin_thr_age, ls="--", lw=2.0, alpha=0.7, color="#8e44ad")
-    ax2.text(ruin_thr_age + 0.3, 88,
-             f"{ruin_thr_age}歳で{threshold}%超",
+    ax2.text(ruin_thr_age + 0.3, 88, f">{threshold}% at {ruin_thr_age}",
              fontsize=10, color="#8e44ad", fontweight="bold")
-ax2.set_xlabel("年齢", fontsize=12)
-ax2.set_ylabel("破綻確率（%）", fontsize=12)
+ax2.set_xlabel("Age", fontsize=12)
+ax2.set_ylabel("Ruin Prob. (%)", fontsize=12)
 ax2.set_ylim(0, 100)
 ax2.grid(True, alpha=0.22)
 ax2.legend(fontsize=11, loc="upper left")
@@ -670,17 +571,24 @@ ax2.tick_params(labelsize=11)
 st.pyplot(fig, use_container_width=True)
 plt.close(fig)
 
-st.markdown(
-    '<div class="hint">※ 総資産＝現金＋iDeCo＋NISA。現金は運用リターン非連動（普通預金扱い）。'
-    '生活費はインフレ率で毎年上昇します。</div>',
-    unsafe_allow_html=True,
-)
+# ── グラフ直下に日本語凡例 ───────────────────────────────
+st.markdown("""
+<div class="legend-box">
+<b>📊 グラフ凡例（日本語）</b><br>
+<span style="color:#4c72b0">■</span> Total Assets (10-90%) ＝ <b>総資産の10〜90%帯</b>（モンテカルロのばらつき範囲）<br>
+<span style="color:#1a6aff">─</span> Total (avg) ＝ <b>総資産（平均）</b><br>
+<span style="color:#e67e22">- -</span> Cash (avg) ＝ <b>現金・預金（平均）</b>　※運用リターン非連動<br>
+<span style="color:#27ae60">-・</span> iDeCo (avg) ＝ <b>iDeCo残高（平均）</b><br>
+<span style="color:#8e44ad">…</span> NISA (avg) ＝ <b>NISA残高（平均）</b><br>
+<span style="color:#c0392b">─</span> Ruin Probability ＝ <b>破綻確率（累積）</b>　/ 
+<span style="color:#8e44ad">- -</span> Threshold ＝ <b>警告しきい値</b><br>
+<span style="color:#777">縦軸単位：万円　／　横軸：年齢　／　薄い線：各試行のサンプル軌跡</span>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
-# ══════════════════════════════════════════════════════════
-#  テーブル＋集計（グラフ下段）
-# ══════════════════════════════════════════════════════════
+# ── テーブル＋集計 ────────────────────────────────────────
 tbl_col, stat_col = st.columns([2, 1])
 
 with tbl_col:
@@ -698,8 +606,7 @@ with tbl_col:
     st.dataframe(df, use_container_width=True, height=420)
     csv = df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("📥 CSVダウンロード", csv,
-                       "retirement_pro2_results.csv", "text/csv",
-                       use_container_width=True)
+                       "retirement_pro2_results.csv", "text/csv", use_container_width=True)
 
 with stat_col:
     st.subheader("🧮 積立 / 受取（平均）")
@@ -712,7 +619,6 @@ with stat_col:
         st.metric("NISA 年平均積立",  f"{int(result['avg_nc'].sum()/yr_cnt):,} 円")
         st.metric("NISA 年平均取崩",  f"{int(result['avg_nw'].sum()/yr_cnt):,} 円")
     st.caption("※ 余剰不足時は設定額より少なくなる場合があります。")
-
     if median_ruin is not None:
         st.info(f"参考：破綻した試行の中央値は **{median_ruin}歳** でした。")
     else:
