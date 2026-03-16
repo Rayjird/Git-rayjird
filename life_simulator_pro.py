@@ -47,6 +47,38 @@ st.markdown("""
                padding:10px 16px;margin-top:8px;font-size:13px;line-height:1.9;}
   div[data-testid="metric-container"]{
     background:#f8f9ff;border:1px solid #dde3ff;border-radius:12px;padding:10px 14px;}
+
+  /* ── タブを大きく・目立つデザインに ── */
+  div[data-testid="stTabs"] button[role="tab"] {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    padding: 14px 36px !important;
+    border-radius: 10px 10px 0 0 !important;
+    color: #555 !important;
+    background: #f0f2f6 !important;
+    border: 2px solid #ddd !important;
+    border-bottom: none !important;
+    margin-right: 6px !important;
+    transition: all 0.2s !important;
+  }
+  div[data-testid="stTabs"] button[role="tab"]:hover {
+    background: #e0e8ff !important;
+    color: #1a6aff !important;
+    border-color: #99b3ff !important;
+  }
+  div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    background: #1a6aff !important;
+    color: #ffffff !important;
+    border-color: #1a6aff !important;
+    font-size: 19px !important;
+    box-shadow: 0 4px 12px rgba(26,106,255,0.3) !important;
+  }
+  div[data-testid="stTabs"] [data-testid="stTabBar"] {
+    gap: 4px !important;
+    border-bottom: 3px solid #1a6aff !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 16px !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
