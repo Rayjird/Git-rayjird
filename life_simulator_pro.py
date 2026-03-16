@@ -419,6 +419,64 @@ params = (st.session_state.locked_params
           if st.session_state.locked and st.session_state.locked_params
           else build_params())
 
+# ── 設定確認テーブル ─────────────────────────────────────
+st.divider()
+st.subheader("📋 設定確認")
+
+_ev_active = [ev for ev in params["events"] if ev["on"]]
+_ev_text = "  /  ".join(
+    f"{ev['label']} {ev['direction']} {ev['amount']//10000:,}万円 {ev['age']}歳"
+    for ev in _ev_active
+) if _ev_active else "なし"
+
+_ideco_str = (
+    f"{'使用' if params['ideco_on'] else '未使用'}  "
+    f"積立 {params['ideco_contrib_monthly']//10000:.1f}万円/月"
+    f"（{params['ideco_contrib_start']}〜{params['ideco_contrib_end']}歳）  "
+    f"受取 {params['ideco_withdraw_annual']//10000:,}万円/年"
+    f"（{params['ideco_withdraw_start']}歳〜）"
+)
+_nisa_str = (
+    f"{'使用' if params['nisa_on'] else '未使用'}  "
+    f"積立 {params['nisa_contrib_monthly']//10000:.1f}万円/月"
+    f"（{params['nisa_contrib_start']}〜{params['nisa_contrib_end']}歳）  "
+    f"取崩 {params['nisa_withdraw_mode']} "
+    f"{params['nisa_withdraw_annual']//10000:,}万円 or {params['nisa_withdraw_rate']*100:.1f}%"
+    f"（{params['nisa_withdraw_start']}歳〜）"
+)
+_tax_str = (
+    f"{'使用' if params['taxable_on'] else '未使用'}  "
+    f"積立 {params['taxable_contrib_monthly']//10000:.1f}万円/月"
+    f"（{params['taxable_contrib_start']}〜{params['taxable_contrib_end']}歳）  "
+    f"取崩 {params['taxable_withdraw_mode']} "
+    f"{params['taxable_withdraw_annual']//10000:,}万円 or {params['taxable_withdraw_rate']*100:.1f}%"
+    f"（{params['taxable_withdraw_start']}歳〜）  "
+    f"譲渡税率 {params['taxable_tax_rate']*100:.3f}%"
+)
+
+_confirm_rows = [
+    ("期間",        f"{params['start_age']}歳 〜 {params['end_age']}歳"),
+    ("初期資産",    f"現金 {params['initial_cash']//10000:,}万  iDeCo {params['initial_ideco']//10000:,}万  NISA {params['initial_nisa']//10000:,}万  特定口座 {params['initial_taxable']//10000:,}万"),
+    ("収入",        f"給与 {params['salary_net']//10000:,}万円/年（〜{params['retire_age']}歳）  年金 {params['pension_annual']//10000:,}万円/年（{params['pension_start_age']}歳〜）"),
+    ("生活費",      f"退職前 {params['living_before']//10000:,}万円/年  退職後 {params['living_after']//10000:,}万円/年"),
+    ("インフレ率",  f"{params['inflation_rate']*100:.2f}%/年"),
+    ("iDeCo",       _ideco_str),
+    ("NISA",        _nisa_str),
+    ("特定口座",    _tax_str),
+    ("イベント",    _ev_text),
+    ("モンテカルロ",f"試行 {params['trials']}回  リターン {params['mean_return']*100:.2f}%  変動率 {params['volatility']*100:.2f}%  破綻しきい値 {params['ruin_threshold']}%"),
+]
+
+_df_confirm = pd.DataFrame(_confirm_rows, columns=["項目", "設定値"])
+st.dataframe(
+    _df_confirm, use_container_width=True, hide_index=True,
+    column_config={
+        "項目":  st.column_config.TextColumn(width="small"),
+        "設定値": st.column_config.TextColumn(width="large"),
+    }
+)
+st.caption("※ 上記の設定内容を確認してから実行ボタンを押してください。")
+
 # ── 実行ボタン ────────────────────────────────────────────
 run_clicked = st.button("▶ シミュレーション実行", use_container_width=True, type="primary")
 
