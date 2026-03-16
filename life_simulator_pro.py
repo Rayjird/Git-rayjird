@@ -98,18 +98,6 @@ def clamp(x, lo, hi): return max(lo, min(hi, x))
 def fmt_man(x): return f"{int(x/10000):,} 万円"
 
 # ══════════════════════════════════════════════════════════
-#  スライダー ＋ 数値入力 連動ウィジェット
-#
-#  【確実に動く仕組み】
-#   スライダーは key="sl_{key}" で管理。
-#   number_input は key なし・value= に session_state["sl_{key}"] を渡す。
-#   number_input が変更されたら on_change で session_state["sl_{key}"] を
-#   上書きして st.rerun() → スライダーが新値で再描画される。
-#   スライダーが変更されたら Streamlit が自動 rerun →
-#   number_input の value= が新しい session_state["sl_{key}"] になる。
-# ══════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════════════════════
 #  スライダー＋数値入力 連動ウィジェット
 #
 #  【設計】
@@ -124,40 +112,61 @@ def fmt_man(x): return f"{int(x/10000):,} 万円"
 #     → スライダー/nb に key= を与えず、val_ キーだけで管理する。
 # ══════════════════════════════════════════════════════════
 
-def linked_int(label, lo, hi, default, step, key, disabled=False):
-    """整数スライダー＋数値入力 連動（key なし方式）"""
-    vk = "val_" + key                          # 値保管キー
-    if vk not in st.session_state:
-        st.session_state[vk] = int(clamp(default, lo, hi))
-    cur = int(clamp(st.session_state[vk], lo, hi))
+def linked_int(label, lo, hi, default, step, key, disabled=False, man=False):
+    """
+    整数スライダー（man=True で万円単位表示・ステップ切替付き）
+    man=True のとき戻り値は円（内部値）。
+    """
+    vk   = "val_" + key
+    sk_f = "fine_" + key
 
-    col_sl, col_nb = st.columns([3, 1])
-    with col_sl:
+    if vk   not in st.session_state:
+        st.session_state[vk]   = int(clamp(default, lo, hi))
+    if sk_f not in st.session_state:
+        st.session_state[sk_f] = True
+
+    if man:
+        lo_m  = int(lo  // 10_000)
+        hi_m  = int(hi  // 10_000)
+        cur_m = int(clamp(st.session_state[vk], lo, hi) // 10_000)
+        fine  = bool(st.session_state[sk_f])
+        step_fine = max(1, int(step // 10_000))
+        step_big  = max(step_fine * 10, 10)
+        step_m    = step_fine if fine else step_big
+
+        btn_col, sl_col = st.columns([1, 5])
+        with btn_col:
+            st.markdown("<div style='margin-top:22px'></div>", unsafe_allow_html=True)
+            if st.button("細" if fine else "粗", key="btn_" + key,
+                         disabled=disabled, use_container_width=True,
+                         help="細かい/大まかステップ切替"):
+                st.session_state[sk_f] = not fine
+                st.rerun()
+        with sl_col:
+            new_sl_m = st.slider(
+                f"{label}（万円）",
+                min_value=lo_m, max_value=hi_m,
+                value=cur_m, step=step_m,
+                disabled=disabled,
+                key="wsl_" + key,
+                format="%d 万円",
+            )
+        if new_sl_m != cur_m:
+            st.session_state[vk] = int(new_sl_m) * 10_000
+        return int(st.session_state[vk])
+
+    else:
+        cur = int(clamp(st.session_state[vk], lo, hi))
         new_sl = st.slider(
             label,
             min_value=int(lo), max_value=int(hi),
             value=cur, step=int(step),
             disabled=disabled,
-            key="wsl_" + key,          # 表示専用キー（書き込み禁止）
+            key="wsl_" + key,
         )
-    with col_nb:
-        st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
-        new_nb = st.number_input(
-            "##" + key,
-            min_value=int(lo), max_value=int(hi),
-            value=cur, step=int(step),
-            disabled=disabled,
-            label_visibility="collapsed",
-            key="wnb_" + key,          # 表示専用キー
-        )
-
-    # どちらが変わっても val_ を更新（Streamlit は変更があれば自動rerun）
-    if new_sl != cur:
-        st.session_state[vk] = int(new_sl)
-    elif new_nb != cur:
-        st.session_state[vk] = int(new_nb)
-
-    return int(st.session_state[vk])
+        if new_sl != cur:
+            st.session_state[vk] = int(new_sl)
+        return int(st.session_state[vk])
 
 
 def linked_float(label, lo, hi, default, step, key, fmt="%.3f", disabled=False):
@@ -278,19 +287,19 @@ with st.sidebar:
     end_age   = max(end_age, start_age + 1)
 
     st.subheader("🏦 初期資産（円）")
-    initial_cash  = linked_int("現金・預金（初期）", 0, 1_000_000_000, 10_000_000, 500_000, "ini_cash",  disabled=locked)
-    initial_ideco = linked_int("iDeCo 残高（初期）", 0, 1_000_000_000, 0,          500_000, "ini_ideco", disabled=locked)
-    initial_nisa  = linked_int("NISA 残高（初期）",  0, 1_000_000_000, 0,          500_000, "ini_nisa",  disabled=locked)
+    initial_cash  = linked_int("現金・預金（初期）", 0, 1_000_000_000, 10_000_000, 500_000, "ini_cash",  disabled=locked, man=True)
+    initial_ideco = linked_int("iDeCo 残高（初期）", 0, 1_000_000_000, 0,          500_000, "ini_ideco", disabled=locked, man=True)
+    initial_nisa  = linked_int("NISA 残高（初期）",  0, 1_000_000_000, 0,          500_000, "ini_nisa",  disabled=locked, man=True)
 
     st.subheader("💼 収入")
-    salary_net        = linked_int("給与手取り（年額）",    0, 30_000_000, 3_000_000, 100_000, "salary",    disabled=locked)
+    salary_net        = linked_int("給与手取り（年額）",    0, 30_000_000, 3_000_000, 100_000, "salary",    disabled=locked, man=True)
     retire_age        = linked_int("退職年齢",              20, 110,       65,        1,       "ret_age",   disabled=locked)
     pension_start_age = linked_int("公的年金 受給開始年齢", 60, 90,        70,        1,       "pen_age",   disabled=locked)
-    pension_annual    = linked_int("公的年金（年額）",      0, 10_000_000, 1_200_000, 50_000,  "pension",   disabled=locked)
+    pension_annual    = linked_int("公的年金（年額）",      0, 10_000_000, 1_200_000, 50_000,  "pension",   disabled=locked, man=True)
 
     st.subheader("🛒 生活費（年額）")
-    living_before = linked_int("退職前 生活費", 0, 20_000_000, 2_500_000, 50_000, "liv_b", disabled=locked)
-    living_after  = linked_int("退職後 生活費", 0, 20_000_000, 2_000_000, 50_000, "liv_a", disabled=locked)
+    living_before = linked_int("退職前 生活費", 0, 20_000_000, 2_500_000, 50_000, "liv_b", disabled=locked, man=True)
+    living_after  = linked_int("退職後 生活費", 0, 20_000_000, 2_000_000, 50_000, "liv_a", disabled=locked, man=True)
 
     st.subheader("📈 インフレ率（年率）")
     inflation_rate = linked_float("インフレ率", 0.0, 0.10, 0.01, 0.005, "infl", disabled=locked)
@@ -299,20 +308,20 @@ with st.sidebar:
     ideco_on              = st.checkbox("iDeCo を使う", value=True, disabled=locked)
     ideco_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,      1,      "ide_cs", disabled=locked)
     ideco_contrib_end     = linked_int("積立終了年齢", 20, 110,        65,      1,      "ide_ce", disabled=locked)
-    ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked)
+    ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked, man=True)
     ideco_withdraw_start  = linked_int("受取開始年齢", 20, 110,        65,      1,      "ide_ws", disabled=locked)
-    ideco_withdraw_annual = linked_int("受取（年額）", 0,  20_000_000, 600_000, 50_000, "ide_wa", disabled=locked)
+    ideco_withdraw_annual = linked_int("受取（年額）", 0,  20_000_000, 600_000, 50_000, "ide_wa", disabled=locked, man=True)
 
     st.subheader("📊 NISA（積立 → 取崩）")
     nisa_on              = st.checkbox("NISA を使う", value=True, disabled=locked)
     nisa_contrib_start   = linked_int("積立開始年齢", 20, 110,        60,     1,     "nisa_cs", disabled=locked)
     nisa_contrib_end     = linked_int("積立終了年齢", 20, 110,        75,     1,     "nisa_ce", disabled=locked)
-    nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked)
+    nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked, man=True)
     nisa_withdraw_start  = linked_int("取崩開始年齢", 20, 110,        70,     1,     "nisa_ws", disabled=locked)
 
     nisa_withdraw_mode = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked)
     if nisa_withdraw_mode == "定額":
-        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 50_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked)
+        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 50_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked, man=True)
         nisa_withdraw_rate   = 0.04
     else:
         nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked)
@@ -334,7 +343,7 @@ with st.sidebar:
             direction = st.radio("種別", ["支出", "収入"],
                                   index=0 if d[3]=="支出" else 1,
                                   horizontal=True, disabled=locked, key=f"ev_dir_{i}")
-            amount    = linked_int("金額（円）", 0, 200_000_000, d[2], 100_000, f"ev_amt_{i}", disabled=locked)
+            amount    = linked_int("金額（円）", 0, 200_000_000, d[2], 100_000, f"ev_amt_{i}", disabled=locked, man=True)
         events.append({"on":bool(on), "label":label, "age":int(ev_age),
                         "direction":direction, "amount":int(amount)})
 
