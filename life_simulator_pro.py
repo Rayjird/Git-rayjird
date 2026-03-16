@@ -41,7 +41,7 @@ st.markdown("""
 <style>
   .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
   .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"] > div:first-child{width:780px !important; min-width:780px !important; max-width:800px !important;transition: none !important;}
+  section[data-testid="stSidebar"]{width:780px !important;}
   section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
   .hint{color:#777;font-size:12px;margin-top:4px;}
   .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
