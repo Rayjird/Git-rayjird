@@ -86,7 +86,7 @@ def password_gate():
 password_gate()
 
 # ── セッション初期化 ──────────────────────────────────────
-for k, v in [("locked", False), ("locked_params", None), ("sim_result", None)]:
+for k, v in [("locked", False), ("locked_params", None), ("sim_result", None), ("go_result", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -266,7 +266,24 @@ def simulate_path(params, rng):
 # ══════════════════════════════════════════════════════════
 #  タブ定義
 # ══════════════════════════════════════════════════════════
+# go_result フラグが立っていたらグラフタブを選択状態にする
+_tab_idx = 1 if st.session_state.go_result else 0
 tab_input, tab_result = st.tabs(["⚙️ 設定入力", "📈 グラフ・結果"])
+# JavaScriptでタブをアクティブにする（フラグが立っているとき）
+if st.session_state.go_result:
+    st.session_state.go_result = False   # フラグをリセット
+    # Streamlit のタブボタンを JS でクリックして切り替える
+    js = """
+    <script>
+    window.addEventListener('load', function() {
+        setTimeout(function() {
+            var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+            if (tabs.length >= 2) { tabs[1].click(); }
+        }, 300);
+    });
+    </script>
+    """
+    st.components.v1.html(js, height=0)
 
 locked = st.session_state.locked
 
@@ -423,93 +440,97 @@ params = (st.session_state.locked_params
 run_clicked = st.button("▶ シミュレーション実行", use_container_width=True, type="primary")
 
 if run_clicked:
-    years_arr = np.arange(params["start_age"], params["end_age"] + 1)
+    with st.spinner("⏳ シミュレーション計算中..."):
+        years_arr = np.arange(params["start_age"], params["end_age"] + 1)
 
-    sample_paths_total = []
-    if params["show_sample_paths"] and params["sample_paths_n"] > 0:
-        rng_s = np.random.default_rng(seed=7)
-        for _ in range(min(int(params["sample_paths_n"]), int(params["trials"]))):
-            out = simulate_path(params, rng_s)
-            sample_paths_total.append(out["total"].copy())
+        sample_paths_total = []
+        if params["show_sample_paths"] and params["sample_paths_n"] > 0:
+            rng_s = np.random.default_rng(seed=7)
+            for _ in range(min(int(params["sample_paths_n"]), int(params["trials"]))):
+                out = simulate_path(params, rng_s)
+                sample_paths_total.append(out["total"].copy())
 
-    rng = np.random.default_rng(seed=42)
-    total_mat=[]; cash_mat=[]; ideco_mat=[]; nisa_mat=[]; taxable_mat=[]
-    ic_mat=[]; nc_mat=[]; iw_mat=[]; nw_mat=[]; tc_mat=[]; tw_mat=[]
-    ruin_ages=[]; ruin_counts=np.zeros(len(years_arr), dtype=float)
+        rng = np.random.default_rng(seed=42)
+        total_mat=[]; cash_mat=[]; ideco_mat=[]; nisa_mat=[]; taxable_mat=[]
+        ic_mat=[]; nc_mat=[]; iw_mat=[]; nw_mat=[]; tc_mat=[]; tw_mat=[]
+        ruin_ages=[]; ruin_counts=np.zeros(len(years_arr), dtype=float)
 
-    for _ in range(int(params["trials"])):
-        out = simulate_path(params, rng)
-        total_mat.append(out["total"]); cash_mat.append(out["cash"])
-        ideco_mat.append(out["ideco"]); nisa_mat.append(out["nisa"])
-        taxable_mat.append(out["taxable"])
-        ic_mat.append(out["ic"]); nc_mat.append(out["nc"])
-        iw_mat.append(out["iw"]); nw_mat.append(out["nw"])
-        tc_mat.append(out["tc"]); tw_mat.append(out["tw"])
-        if out["ruined"] and out["ruin_age"] is not None:
-            ruin_ages.append(out["ruin_age"])
-            ruin_counts[np.where(years_arr >= out["ruin_age"])[0]] += 1
-        else:
-            ruin_ages.append(np.nan)
+        for _ in range(int(params["trials"])):
+            out = simulate_path(params, rng)
+            total_mat.append(out["total"]); cash_mat.append(out["cash"])
+            ideco_mat.append(out["ideco"]); nisa_mat.append(out["nisa"])
+            taxable_mat.append(out["taxable"])
+            ic_mat.append(out["ic"]); nc_mat.append(out["nc"])
+            iw_mat.append(out["iw"]); nw_mat.append(out["nw"])
+            tc_mat.append(out["tc"]); tw_mat.append(out["tw"])
+            if out["ruined"] and out["ruin_age"] is not None:
+                ruin_ages.append(out["ruin_age"])
+                ruin_counts[np.where(years_arr >= out["ruin_age"])[0]] += 1
+            else:
+                ruin_ages.append(np.nan)
 
-    total_mat   = np.array(total_mat);   cash_mat  = np.array(cash_mat)
-    ideco_mat   = np.array(ideco_mat);   nisa_mat  = np.array(nisa_mat)
-    taxable_mat = np.array(taxable_mat)
+        total_mat   = np.array(total_mat);   cash_mat  = np.array(cash_mat)
+        ideco_mat   = np.array(ideco_mat);   nisa_mat  = np.array(nisa_mat)
+        taxable_mat = np.array(taxable_mat)
 
-    avg_total   = total_mat.mean(axis=0)
-    p10_total   = np.percentile(total_mat, 10, axis=0)
-    p90_total   = np.percentile(total_mat, 90, axis=0)
-    avg_cash    = cash_mat.mean(axis=0);  avg_ideco = ideco_mat.mean(axis=0)
-    avg_nisa    = nisa_mat.mean(axis=0);  avg_taxable = taxable_mat.mean(axis=0)
+        avg_total   = total_mat.mean(axis=0)
+        p10_total   = np.percentile(total_mat, 10, axis=0)
+        p90_total   = np.percentile(total_mat, 90, axis=0)
+        avg_cash    = cash_mat.mean(axis=0);  avg_ideco = ideco_mat.mean(axis=0)
+        avg_nisa    = nisa_mat.mean(axis=0);  avg_taxable = taxable_mat.mean(axis=0)
 
-    final_assets  = total_mat[:, -1]
-    survival_rate = float(np.mean(final_assets > 0) * 100)
-    rfa           = np.array(ruin_ages, dtype=float)
-    ruin_rate     = float(np.mean(np.isfinite(rfa)) * 100)
-    median_final  = float(np.median(final_assets))
-    p10_final     = float(np.percentile(final_assets, 10))
-    p90_final     = float(np.percentile(final_assets, 90))
+        final_assets  = total_mat[:, -1]
+        survival_rate = float(np.mean(final_assets > 0) * 100)
+        rfa           = np.array(ruin_ages, dtype=float)
+        ruin_rate     = float(np.mean(np.isfinite(rfa)) * 100)
+        median_final  = float(np.median(final_assets))
+        p10_final     = float(np.percentile(final_assets, 10))
+        p90_final     = float(np.percentile(final_assets, 90))
 
-    ruin_prob    = ruin_counts / float(params["trials"]) * 100
-    median_ruin  = int(np.nanmedian(rfa)) if np.any(np.isfinite(rfa)) else None
-    over_idx     = np.where(ruin_prob >= params["ruin_threshold"])[0]
-    ruin_thr_age = int(years_arr[over_idx[0]]) if len(over_idx) > 0 else None
+        ruin_prob    = ruin_counts / float(params["trials"]) * 100
+        median_ruin  = int(np.nanmedian(rfa)) if np.any(np.isfinite(rfa)) else None
+        over_idx     = np.where(ruin_prob >= params["ruin_threshold"])[0]
+        ruin_thr_age = int(years_arr[over_idx[0]]) if len(over_idx) > 0 else None
 
-    key_events = [
-        {"age": params["retire_age"],        "label": f"退職（{params['retire_age']}歳）",             "elabel": f"Retire ({params['retire_age']})",     "color": "#e67e22"},
-        {"age": params["pension_start_age"], "label": f"年金開始（{params['pension_start_age']}歳）",  "elabel": f"Pension ({params['pension_start_age']})", "color": "#2980b9"},
-    ]
-    for ev in params["events"]:
-        if ev["on"]:
-            sign = "+" if ev["direction"] == "収入" else "-"
+        key_events = [
+            {"age": params["retire_age"],        "label": f"退職（{params['retire_age']}歳）",             "elabel": f"Retire ({params['retire_age']})",     "color": "#e67e22"},
+            {"age": params["pension_start_age"], "label": f"年金開始（{params['pension_start_age']}歳）",  "elabel": f"Pension ({params['pension_start_age']})", "color": "#2980b9"},
+        ]
+        for ev in params["events"]:
+            if ev["on"]:
+                sign = "+" if ev["direction"] == "収入" else "-"
+                key_events.append({
+                    "age":    ev["age"],
+                    "label":  f"{ev['label']}（{sign}{ev['amount']//10000:,}万円）",
+                    "elabel": f"{ev['label']} ({sign}{ev['amount']//10000:,}M)",
+                    "color":  "#27ae60" if ev["direction"] == "収入" else "#c0392b",
+                })
+        if ruin_thr_age:
             key_events.append({
-                "age":    ev["age"],
-                "label":  f"{ev['label']}（{sign}{ev['amount']//10000:,}万円）",
-                "elabel": f"{ev['label']} ({sign}{ev['amount']//10000:,}M)",
-                "color":  "#27ae60" if ev["direction"] == "収入" else "#c0392b",
+                "age":    ruin_thr_age,
+                "label":  f"⚠ 破綻{params['ruin_threshold']}%超（{ruin_thr_age}歳）",
+                "elabel": f"Ruin>{params['ruin_threshold']}% ({ruin_thr_age})",
+                "color":  "#8e44ad",
             })
-    if ruin_thr_age:
-        key_events.append({
-            "age":    ruin_thr_age,
-            "label":  f"⚠ 破綻{params['ruin_threshold']}%超（{ruin_thr_age}歳）",
-            "elabel": f"Ruin>{params['ruin_threshold']}% ({ruin_thr_age})",
-            "color":  "#8e44ad",
-        })
 
-    st.session_state.sim_result = dict(
-        years=years_arr, sample_paths_total=sample_paths_total,
-        avg_total=avg_total, p10_total=p10_total, p90_total=p90_total,
-        avg_cash=avg_cash, avg_ideco=avg_ideco, avg_nisa=avg_nisa,
-        avg_taxable=avg_taxable,
-        survival_rate=survival_rate, ruin_rate=ruin_rate,
-        median_final=median_final, p10_final=p10_final, p90_final=p90_final,
-        ruin_prob=ruin_prob, median_ruin=median_ruin,
-        threshold=params["ruin_threshold"], ruin_thr_age=ruin_thr_age,
-        avg_ic=np.array(ic_mat).mean(axis=0), avg_nc=np.array(nc_mat).mean(axis=0),
-        avg_iw=np.array(iw_mat).mean(axis=0), avg_nw=np.array(nw_mat).mean(axis=0),
-        avg_tc=np.array(tc_mat).mean(axis=0), avg_tw=np.array(tw_mat).mean(axis=0),
-        yr_cnt=len(years_arr), key_events=key_events,
-        show_sp=params["show_sample_paths"],
-    )
+        st.session_state.sim_result = dict(
+            years=years_arr, sample_paths_total=sample_paths_total,
+            avg_total=avg_total, p10_total=p10_total, p90_total=p90_total,
+            avg_cash=avg_cash, avg_ideco=avg_ideco, avg_nisa=avg_nisa,
+            avg_taxable=avg_taxable,
+            survival_rate=survival_rate, ruin_rate=ruin_rate,
+            median_final=median_final, p10_final=p10_final, p90_final=p90_final,
+            ruin_prob=ruin_prob, median_ruin=median_ruin,
+            threshold=params["ruin_threshold"], ruin_thr_age=ruin_thr_age,
+            avg_ic=np.array(ic_mat).mean(axis=0), avg_nc=np.array(nc_mat).mean(axis=0),
+            avg_iw=np.array(iw_mat).mean(axis=0), avg_nw=np.array(nw_mat).mean(axis=0),
+            avg_tc=np.array(tc_mat).mean(axis=0), avg_tw=np.array(tw_mat).mean(axis=0),
+            yr_cnt=len(years_arr), key_events=key_events,
+            show_sp=params["show_sample_paths"],
+        )
+    # 計算完了 → go_result フラグを立てて rerun → JSでタブ切替
+    st.session_state.go_result = True
+    st.rerun()
 
 with tab_result:
     result = st.session_state.sim_result
