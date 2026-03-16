@@ -41,7 +41,7 @@ st.markdown("""
 <style>
   .sim-title{font-size:32px;font-weight:900;color:#1a1a2e;}
   .sim-sub{color:#555;font-size:14px;margin-bottom:1rem;}
-  section[data-testid="stSidebar"]{min-width:400px !important;max-width:480px !important;}
+  section[data-testid="stSidebar"]{min-width:750px !important;max-width:800px !important;}
   section[data-testid="stSidebar"] label{font-size:14px !important;font-weight:600 !important;}
   .hint{color:#777;font-size:12px;margin-top:4px;}
   .legend-box{background:#f8f9ff;border:1px solid #dde3ff;border-radius:10px;
@@ -170,45 +170,30 @@ def linked_int(label, lo, hi, default, step, key, disabled=False, man=False):
 
 
 def linked_float(label, lo, hi, default, step, key, fmt="%.3f", disabled=False):
-    """小数スライダー＋数値入力 連動（key なし方式）"""
+    """小数スライダー（スライダーのみ・シンプル版）"""
     vk = "val_" + key
     if vk not in st.session_state:
         st.session_state[vk] = float(clamp(default, lo, hi))
     cur = float(clamp(st.session_state[vk], lo, hi))
 
-    # スライダーは整数スケールで管理（浮動小数精度ズレ回避）
+    # 整数スケールでスライダーを動かし精度ズレを回避
     scale = round(1.0 / step)
     lo_i  = int(round(lo  * scale))
     hi_i  = int(round(hi  * scale))
     cur_i = int(round(cur * scale))
     cur_i = clamp(cur_i, lo_i, hi_i)
 
-    col_sl, col_nb = st.columns([3, 1])
-    with col_sl:
-        new_sl_i = st.slider(
-            label,
-            min_value=lo_i, max_value=hi_i,
-            value=cur_i, step=1,
-            disabled=disabled,
-            key="wsl_" + key,
-        )
-    with col_nb:
-        st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
-        new_nb = st.number_input(
-            "##" + key,
-            min_value=float(lo), max_value=float(hi),
-            value=cur, step=float(step), format=fmt,
-            disabled=disabled,
-            label_visibility="collapsed",
-            key="wnb_" + key,
-        )
-
+    new_sl_i = st.slider(
+        label,
+        min_value=lo_i, max_value=hi_i,
+        value=cur_i, step=1,
+        disabled=disabled,
+        key="wsl_" + key,
+        format=fmt,
+    )
     new_sl = new_sl_i / scale
     if abs(new_sl - cur) > step * 0.01:
         st.session_state[vk] = new_sl
-    elif abs(float(new_nb) - cur) > step * 0.01:
-        st.session_state[vk] = float(new_nb)
-
     return float(st.session_state[vk])
 
 
