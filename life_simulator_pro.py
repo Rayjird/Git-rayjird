@@ -188,6 +188,7 @@ def simulate_path(params, rng):
     ideco   = params["initial_ideco"]
     nisa    = params["initial_nisa"]
     taxable = params["initial_taxable"]
+    taxable_cost_basis = params["initial_taxable"]  # 特定口座の取得原価（元本）
     total_h=[]; cash_h=[]; ideco_h=[]; nisa_h=[]; taxable_h=[]
     ic_h=[]; nc_h=[]; iw_h=[]; nw_h=[]; tc_h=[]; tw_h=[]
     ruined=False; ruin_age=None
@@ -211,7 +212,7 @@ def simulate_path(params, rng):
         # 特定口座積立
         tc = 0.0
         if params["taxable_on"] and params["taxable_contrib_start"] <= age <= params["taxable_contrib_end"] and available > 0:
-            tc = min(params["taxable_contrib_monthly"] * 12, available); taxable += tc; available -= tc
+            tc = min(params["taxable_contrib_monthly"] * 12, available); taxable += tc; taxable_cost_basis += tc; available -= tc
 
         cash = available   # 現金はリターン非連動
 
@@ -223,9 +224,21 @@ def simulate_path(params, rng):
                   else min(params["nisa_withdraw_annual"], nisa))
             nw = min(nw, nisa); nisa -= nw; cash += nw
         if params["taxable_on"] and age >= params["taxable_withdraw_start"] and taxable > 0:
-            tw = (taxable * params["taxable_withdraw_rate"] if params["taxable_withdraw_mode"] == "定率"
-                  else min(params["taxable_withdraw_annual"], taxable))
-            tw = min(tw, taxable); taxable -= tw; cash += tw
+            tw_gross = (taxable * params["taxable_withdraw_rate"] if params["taxable_withdraw_mode"] == "定率"
+                        else min(params["taxable_withdraw_annual"], taxable))
+            tw_gross = min(tw_gross, taxable)
+            # 利益部分のみ課税（元本比率で按分）
+            if taxable > 0 and taxable_cost_basis < taxable:
+                gain_ratio = (taxable - taxable_cost_basis) / taxable
+                tw_tax = tw_gross * gain_ratio * params["taxable_tax_rate"]
+            else:
+                tw_tax = 0.0
+            tw = tw_gross - tw_tax          # 手取り
+            # 元本を取崩比率で減らす
+            cost_ratio = min(taxable_cost_basis / taxable, 1.0) if taxable > 0 else 0.0
+            taxable_cost_basis -= tw_gross * cost_ratio
+            taxable_cost_basis = max(taxable_cost_basis, 0.0)
+            taxable -= tw_gross; cash += tw
 
         for ev in params["events"]:
             if ev["on"] and age == ev["age"]:
@@ -324,6 +337,8 @@ with tab_input:
     else:
         taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked)
         taxable_withdraw_annual = 0
+    taxable_tax_rate = linked_float("譲渡税率（特定口座）", 0.0, 0.30, 0.20315, 0.001, "tax_taxrate", fmt="%.4f", disabled=locked)
+    st.caption("※ 利益部分のみ課税。元本相当分は非課税で計算します。")
 
     st.subheader("🎯 一時イベント（最大12件）")
     _ev_def = [
@@ -387,6 +402,7 @@ def build_params():
         taxable_withdraw_annual=float(taxable_withdraw_annual),
         taxable_withdraw_mode=taxable_withdraw_mode,
         taxable_withdraw_rate=float(taxable_withdraw_rate),
+        taxable_tax_rate=float(taxable_tax_rate),
         events=events,
         mean_return=float(mean_return), volatility=float(volatility),
         ruin_threshold=int(ruin_threshold),
