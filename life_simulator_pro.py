@@ -48,6 +48,18 @@ st.markdown("""
   div[data-testid="metric-container"]{
     background:#f8f9ff;border:1px solid #dde3ff;border-radius:12px;padding:10px 14px;}
 
+  /* ── スマホ対応：プルダウンリフレッシュ・意図しないリロードを防止 ── */
+  html, body {
+    overscroll-behavior: contain !important;
+    overscroll-behavior-y: contain !important;
+  }
+  section.main, .main, [data-testid="stAppViewContainer"] {
+    overscroll-behavior: contain !important;
+    overscroll-behavior-y: contain !important;
+  }
+  /* スマホでのタップハイライト無効化（誤操作防止） */
+  * { -webkit-tap-highlight-color: transparent; }
+
   /* ── タブを大きく・目立つデザインに ── */
   div[data-testid="stTabs"] button[role="tab"] {
     font-size: 18px !important;
