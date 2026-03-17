@@ -612,10 +612,16 @@ if st.session_state.sim_done and st.session_state.sim_result is not None:
     <div style="text-align:center; margin:8px 0;">
       <button onclick="
         (function(){
-          var tabs = window.parent.document.querySelectorAll(
+          var doc = window.parent.document;
+          var tabs = doc.querySelectorAll(
             'div[data-testid=stTabs] button[role=tab]'
           );
-          if(tabs.length >= 2){ tabs[1].click(); }
+          if(tabs.length >= 2){
+            tabs[1].click();
+            setTimeout(function(){
+              window.parent.scrollTo({top: 0, behavior: 'smooth'});
+            }, 100);
+          }
         })()
       " style="
         font-size:18px; font-weight:700; color:#fff;
