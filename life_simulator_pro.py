@@ -512,9 +512,14 @@ _confirm_rows = [
     ("収入",        f"給与 {params['salary_net']//10000:,}万円/年（〜{params['retire_age']}歳）  年金 {params['pension_annual']//10000:,}万円/年（{params['pension_start_age']}歳〜）"),
     ("生活費",      f"退職前 {params['living_before']//10000:,}万円/年  退職後 {params['living_after']//10000:,}万円/年"),
     ("インフレ率",  f"{params['inflation_rate']*100:.2f}%/年"),
-    ("iDeCo",       _ideco_str),
-    ("NISA",        _nisa_str),
-    ("特定口座",    _tax_str),
+]
+if params["ideco_on"]:
+    _confirm_rows.append(("iDeCo", _ideco_str))
+if params["nisa_on"]:
+    _confirm_rows.append(("NISA", _nisa_str))
+if params["taxable_on"]:
+    _confirm_rows.append(("特定口座", _tax_str))
+_confirm_rows += [
     ("イベント",    _ev_text),
     ("モンテカルロ",f"試行 {params['trials']}回  リターン {params['mean_return']*100:.2f}%  変動率 {params['volatility']*100:.2f}%  破綻しきい値 {params['ruin_threshold']}%"),
 ]
