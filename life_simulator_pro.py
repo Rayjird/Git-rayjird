@@ -4,8 +4,8 @@ import glob
 import streamlit as st
 
 st.set_page_config(
-    page_title="老後資産シミュレーター PRO2",
-    page_icon="💰",
+    page_title="資産未来予報 Pro",
+    page_icon="🔮",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -82,8 +82,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="sim-title">💰 老後資産シミュレーター PRO2</div>', unsafe_allow_html=True)
-st.markdown('<div class="sim-sub">給与・年金・生活費・iDeCo・NISA・特定口座・イベントを反映し、モンテカルロで将来レンジを可視化します。</div>', unsafe_allow_html=True)
+st.markdown('<div class="sim-title">🔮 資産未来予報 Pro</div>', unsafe_allow_html=True)
+st.markdown('<div class="sim-sub">老後資産管理に最適。iDeCo・NISA・特定口座・現金をモンテカルロ法で確率的に可視化します。</div>', unsafe_allow_html=True)
 
 # ── パスワードゲート ──────────────────────────────────────
 def get_pro_password():
@@ -706,7 +706,7 @@ with tab_result:
                     bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
                               edgecolor=ke["color"], alpha=0.88))
 
-    ax.set_title("Retirement Asset Simulator PRO2 - Monte Carlo", fontsize=15, fontweight="bold", pad=12)
+    ax.set_title("Asset Future Forecast Pro - Monte Carlo", fontsize=15, fontweight="bold", pad=12)
     ax.set_xlabel("Age", fontsize=13)
     ax.set_ylabel("Assets (10,000 JPY)", fontsize=13)
     ax.grid(True, alpha=0.22)
@@ -764,7 +764,7 @@ with tab_result:
         st.dataframe(df, use_container_width=True, height=420)
         csv = df.to_csv(index=False).encode("utf-8-sig")
         st.download_button("📥 CSVダウンロード", csv,
-                           "retirement_pro2_results.csv", "text/csv", use_container_width=True)
+                           "asset_forecast_pro_results.csv", "text/csv", use_container_width=True)
 
     with stat_col:
         st.subheader("🧮 積立 / 受取（平均）")
