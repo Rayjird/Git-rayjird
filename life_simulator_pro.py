@@ -345,44 +345,52 @@ with tab_input:
     inflation_rate = linked_float("インフレ率", 0.0, 0.10, 0.01, 0.005, "infl", disabled=locked)
 
     st.subheader("🏛️ iDeCo（積立 → 受取）")
-    ideco_on              = st.checkbox("iDeCo を使う", value=True, disabled=locked)
-    ideco_contrib_start   = linked_int("積立開始年齢", 20,  65,        40,      1,      "ide_cs", disabled=locked)
-    ideco_contrib_end     = linked_int("積立終了年齢", 40,  70,        65,      1,      "ide_ce", disabled=locked)
-    ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked, man=True)
-    ideco_withdraw_start  = linked_int("受取開始年齢", 60,  75,        65,      1,      "ide_ws", disabled=locked)
-    ideco_withdraw_annual = linked_int("受取（年額）", 0,  12_000_000, 600_000, 50_000, "ide_wa", disabled=locked, man=True)
+    ideco_on = st.checkbox("iDeCo を使う", value=True, disabled=locked)
+    with st.expander("iDeCo 詳細設定", expanded=ideco_on):
+        if not ideco_on:
+            st.caption("※ iDeCo は未使用です。チェックを入れると設定が有効になります。")
+        ideco_contrib_start   = linked_int("積立開始年齢", 20,  65,        40,      1,      "ide_cs", disabled=locked or not ideco_on)
+        ideco_contrib_end     = linked_int("積立終了年齢", 40,  70,        65,      1,      "ide_ce", disabled=locked or not ideco_on)
+        ideco_contrib_monthly = linked_int("積立（月額）", 0,  300_000,    23_000,  1_000,  "ide_cm", disabled=locked or not ideco_on, man=True)
+        ideco_withdraw_start  = linked_int("受取開始年齢", 60,  75,        65,      1,      "ide_ws", disabled=locked or not ideco_on)
+        ideco_withdraw_annual = linked_int("受取（年額）", 0,  12_000_000, 600_000, 50_000, "ide_wa", disabled=locked or not ideco_on, man=True)
 
     st.subheader("📊 NISA（積立 → 取崩）")
-    nisa_on              = st.checkbox("NISA を使う", value=True, disabled=locked)
-    nisa_contrib_start   = linked_int("積立開始年齢", 20,  70,        40,     1,     "nisa_cs", disabled=locked)
-    nisa_contrib_end     = linked_int("積立終了年齢", 20,  80,        65,     1,     "nisa_ce", disabled=locked)
-    nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked, man=True)
-    nisa_withdraw_start  = linked_int("取崩開始年齢", 50,  90,        70,     1,     "nisa_ws", disabled=locked)
-
-    nisa_withdraw_mode = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked)
-    if nisa_withdraw_mode == "定額":
-        nisa_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked, man=True)
-        nisa_withdraw_rate   = 0.04
-    else:
-        nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked)
-        nisa_withdraw_annual = 0
+    nisa_on = st.checkbox("NISA を使う", value=True, disabled=locked)
+    with st.expander("NISA 詳細設定", expanded=nisa_on):
+        if not nisa_on:
+            st.caption("※ NISA は未使用です。チェックを入れると設定が有効になります。")
+        nisa_contrib_start   = linked_int("積立開始年齢", 20,  70,        40,     1,     "nisa_cs", disabled=locked or not nisa_on)
+        nisa_contrib_end     = linked_int("積立終了年齢", 20,  80,        65,     1,     "nisa_ce", disabled=locked or not nisa_on)
+        nisa_contrib_monthly = linked_int("積立（月額）", 0,  500_000,    60_000, 1_000, "nisa_cm", disabled=locked or not nisa_on, man=True)
+        nisa_withdraw_start  = linked_int("取崩開始年齢", 50,  90,        70,     1,     "nisa_ws", disabled=locked or not nisa_on)
+        nisa_withdraw_mode   = st.radio("取崩方法", ["定額", "定率"], horizontal=True, disabled=locked or not nisa_on)
+        if nisa_withdraw_mode == "定額":
+            nisa_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "nisa_wa", disabled=locked or not nisa_on, man=True)
+            nisa_withdraw_rate   = 0.04
+        else:
+            nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked or not nisa_on)
+            nisa_withdraw_annual = 0
 
     st.subheader("🏦 特定口座（積立 → 取崩）")
-    taxable_on              = st.checkbox("特定口座を使う", value=False, disabled=locked)
-    initial_taxable         = linked_int("特定口座 残高（初期）", 0, 100_000_000, 0, 100_000, "ini_taxable", disabled=locked, man=True)
-    taxable_contrib_start   = linked_int("積立開始年齢", 20,  70, 40, 1, "tax_cs", disabled=locked)
-    taxable_contrib_end     = linked_int("積立終了年齢", 20,  80, 60, 1, "tax_ce", disabled=locked)
-    taxable_contrib_monthly = linked_int("積立（月額）", 0, 1_000_000, 50_000, 10_000, "tax_cm", disabled=locked, man=True)
-    taxable_withdraw_start  = linked_int("取崩開始年齢", 50,  95, 70, 1, "tax_ws", disabled=locked)
-    taxable_withdraw_mode   = st.radio("取崩方法（特定）", ["定額", "定率"], horizontal=True, disabled=locked, key="tax_mode")
-    if taxable_withdraw_mode == "定額":
-        taxable_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "tax_wa", disabled=locked, man=True)
-        taxable_withdraw_rate   = 0.04
-    else:
-        taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked)
-        taxable_withdraw_annual = 0
-    taxable_tax_rate = linked_float("譲渡税率（特定口座）", 0.0, 0.30, 0.20315, 0.001, "tax_taxrate", fmt="%.4f", disabled=locked)
-    st.caption("※ 利益部分のみ課税。元本相当分は非課税で計算します。")
+    taxable_on = st.checkbox("特定口座を使う", value=False, disabled=locked)
+    with st.expander("特定口座 詳細設定", expanded=taxable_on):
+        if not taxable_on:
+            st.caption("※ 特定口座は未使用です。チェックを入れると設定が有効になります。")
+        initial_taxable         = linked_int("特定口座 残高（初期）", 0, 100_000_000, 0, 100_000, "ini_taxable", disabled=locked or not taxable_on, man=True)
+        taxable_contrib_start   = linked_int("積立開始年齢", 20,  70, 40, 1, "tax_cs", disabled=locked or not taxable_on)
+        taxable_contrib_end     = linked_int("積立終了年齢", 20,  80, 60, 1, "tax_ce", disabled=locked or not taxable_on)
+        taxable_contrib_monthly = linked_int("積立（月額）", 0, 1_000_000, 50_000, 10_000, "tax_cm", disabled=locked or not taxable_on, man=True)
+        taxable_withdraw_start  = linked_int("取崩開始年齢", 50,  95, 70, 1, "tax_ws", disabled=locked or not taxable_on)
+        taxable_withdraw_mode   = st.radio("取崩方法（特定）", ["定額", "定率"], horizontal=True, disabled=locked or not taxable_on, key="tax_mode")
+        if taxable_withdraw_mode == "定額":
+            taxable_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 50_000, "tax_wa", disabled=locked or not taxable_on, man=True)
+            taxable_withdraw_rate   = 0.04
+        else:
+            taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked or not taxable_on)
+            taxable_withdraw_annual = 0
+        taxable_tax_rate = linked_float("譲渡税率（特定口座）", 0.0, 0.30, 0.20315, 0.001, "tax_taxrate", fmt="%.4f", disabled=locked or not taxable_on)
+        st.caption("※ 利益部分のみ課税。元本相当分は非課税で計算します。")
 
     st.subheader("🎯 一時イベント（最大12件）")
     _ev_def = [
