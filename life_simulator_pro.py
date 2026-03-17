@@ -607,18 +607,26 @@ if run_clicked:
 # 完了後にグラフタブへ誘導するボタンを表示
 if st.session_state.sim_done and st.session_state.sim_result is not None:
     st.success("✅ 計算完了！")
-    # st.button で tab_result をアクティブにするトリックは使えないため
-    # ユーザーが自分でタブをクリックするよう案内する
-    st.markdown(
-        """
-        <div style="text-align:center; margin:12px 0;">
-          <span style="font-size:18px; font-weight:700; color:#1a6aff;">
-            ⬆️ 上の「📈 グラフ・結果」タブをクリックしてください
-          </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # JavaScriptでタブボタンをクリックする
+    st.components.v1.html("""
+    <div style="text-align:center; margin:8px 0;">
+      <button onclick="
+        (function(){
+          var tabs = window.parent.document.querySelectorAll(
+            'div[data-testid=stTabs] button[role=tab]'
+          );
+          if(tabs.length >= 2){ tabs[1].click(); }
+        })()
+      " style="
+        font-size:18px; font-weight:700; color:#fff;
+        background:#1a6aff; border:none; border-radius:10px;
+        padding:14px 40px; cursor:pointer;
+        box-shadow:0 4px 12px rgba(26,106,255,0.35);
+      ">
+        📈 グラフ・結果を見る →
+      </button>
+    </div>
+    """, height=80)
 
 with tab_result:
     result = st.session_state.sim_result
