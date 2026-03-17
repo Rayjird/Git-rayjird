@@ -619,8 +619,20 @@ if st.session_state.sim_done and st.session_state.sim_result is not None:
           if(tabs.length >= 2){
             tabs[1].click();
             setTimeout(function(){
-              window.parent.scrollTo({top: 0, behavior: 'smooth'});
-            }, 100);
+              // 複数の方法でスクロールを試みる
+              try { window.parent.scrollTo({top:0, behavior:'smooth'}); } catch(e){}
+              try {
+                var main = doc.querySelector('section.main') ||
+                           doc.querySelector('[data-testid="stAppViewContainer"]') ||
+                           doc.querySelector('.main') ||
+                           doc.documentElement;
+                if(main){ main.scrollTo({top:0, behavior:'smooth'}); }
+              } catch(e){}
+              try {
+                var blocks = doc.querySelectorAll('[data-testid="block-container"]');
+                if(blocks.length){ blocks[0].scrollIntoView({behavior:'smooth'}); }
+              } catch(e){}
+            }, 200);
           }
         })()
       " style="
