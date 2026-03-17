@@ -612,28 +612,10 @@ if st.session_state.sim_done and st.session_state.sim_result is not None:
     <div style="text-align:center; margin:8px 0;">
       <button onclick="
         (function(){
-          var doc = window.parent.document;
-          var tabs = doc.querySelectorAll(
+          var tabs = window.parent.document.querySelectorAll(
             'div[data-testid=stTabs] button[role=tab]'
           );
-          if(tabs.length >= 2){
-            tabs[1].click();
-            setTimeout(function(){
-              // 複数の方法でスクロールを試みる
-              try { window.parent.scrollTo({top:0, behavior:'smooth'}); } catch(e){}
-              try {
-                var main = doc.querySelector('section.main') ||
-                           doc.querySelector('[data-testid="stAppViewContainer"]') ||
-                           doc.querySelector('.main') ||
-                           doc.documentElement;
-                if(main){ main.scrollTo({top:0, behavior:'smooth'}); }
-              } catch(e){}
-              try {
-                var blocks = doc.querySelectorAll('[data-testid="block-container"]');
-                if(blocks.length){ blocks[0].scrollIntoView({behavior:'smooth'}); }
-              } catch(e){}
-            }, 200);
-          }
+          if(tabs.length >= 2){ tabs[1].click(); }
         })()
       " style="
         font-size:18px; font-weight:700; color:#fff;
@@ -643,8 +625,11 @@ if st.session_state.sim_done and st.session_state.sim_result is not None:
       ">
         📈 グラフ・結果を見る →
       </button>
+      <div style="margin-top:10px; font-size:14px; color:#888;">
+        ※ 画面が切り替わります。上にスクロールしてご確認ください。
+      </div>
     </div>
-    """, height=80)
+    """, height=100)
 
 with tab_result:
     result = st.session_state.sim_result
