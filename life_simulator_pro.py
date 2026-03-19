@@ -175,8 +175,12 @@ def linked_int(label, lo, hi, default, step, key, disabled=False, man=False):
         return int(st.session_state[vk])
 
 
-def linked_float(label, lo, hi, default, step, key, fmt="%.2f", disabled=False):
-    """小数スライダー + 数値入力ボックス"""
+def linked_float(label, lo, hi, default, step, key, fmt="%.2f", disabled=False, pct=False):
+    """
+    小数スライダー + 数値入力ボックス。
+    pct=True のとき: lo/hi/default/step は decimal、スライダー・数値入力とも %表示、戻り値は decimal。
+    pct=False のとき: 従来通り scaled-integer スライダー。
+    """
     vk     = "val_" + key
     sl_key = "wsl_" + key
     nb_key = "wnb_" + key
@@ -185,36 +189,69 @@ def linked_float(label, lo, hi, default, step, key, fmt="%.2f", disabled=False):
         st.session_state[vk] = float(clamp(default, lo, hi))
     cur = float(clamp(st.session_state[vk], lo, hi))
 
-    scale = round(1.0 / step)
-    lo_i  = int(round(lo  * scale))
-    hi_i  = int(round(hi  * scale))
-    cur_i = int(round(cur * scale))
-    cur_i = int(clamp(cur_i, lo_i, hi_i))
+    if pct:
+        # %単位で直接操作（float スライダー）
+        lo_p   = lo   * 100.0
+        hi_p   = hi   * 100.0
+        step_p = step * 100.0
+        cur_p  = cur  * 100.0
+        p_dec  = max(0, -int(math.floor(math.log10(step_p)))) if step_p > 0 else 1
+        p_fmt  = f"%.{p_dec}f"
 
-    st.session_state[sl_key] = cur_i
-    st.session_state[nb_key] = cur
+        st.session_state[sl_key] = cur_p
+        st.session_state[nb_key] = cur_p
 
-    decimals = max(0, -int(math.floor(math.log10(step)))) if step > 0 else 3
-    nb_fmt = f"%.{decimals}f"
+        def _sl_change(vk=vk, sl_key=sl_key):
+            st.session_state[vk] = float(st.session_state[sl_key]) / 100.0
 
-    def _sl_change(vk=vk, sl_key=sl_key, scale=scale):
-        st.session_state[vk] = float(st.session_state[sl_key]) / scale
+        def _nb_change(vk=vk, nb_key=nb_key, lo_p=lo_p, hi_p=hi_p):
+            raw = st.session_state.get(nb_key, cur_p)
+            st.session_state[vk] = float(clamp(raw, lo_p, hi_p)) / 100.0
 
-    def _nb_change(vk=vk, nb_key=nb_key, lo=lo, hi=hi):
-        raw = st.session_state.get(nb_key, lo)
-        st.session_state[vk] = float(clamp(raw, lo, hi))
+        col_sl, col_nb = st.columns([4, 1])
+        with col_sl:
+            st.slider(label, min_value=float(lo_p), max_value=float(hi_p),
+                      value=float(cur_p), step=float(step_p), disabled=disabled,
+                      key=sl_key, format=f"{p_fmt} %%", on_change=_sl_change)
+        with col_nb:
+            st.number_input("%", min_value=float(lo_p), max_value=float(hi_p),
+                            value=float(cur_p), step=float(step_p), disabled=disabled,
+                            key=nb_key, on_change=_nb_change,
+                            format=p_fmt, label_visibility="collapsed")
+        return float(st.session_state[vk])
 
-    col_sl, col_nb = st.columns([4, 1])
-    with col_sl:
-        st.slider(label, min_value=lo_i, max_value=hi_i,
-                  value=cur_i, step=1, disabled=disabled,
-                  key=sl_key, format=fmt, on_change=_sl_change)
-    with col_nb:
-        st.number_input("値", min_value=float(lo), max_value=float(hi),
-                        value=cur, step=float(step), disabled=disabled,
-                        key=nb_key, on_change=_nb_change,
-                        format=nb_fmt, label_visibility="collapsed")
-    return float(st.session_state[vk])
+    else:
+        # scaled-integer スライダー（従来方式）
+        scale = round(1.0 / step)
+        lo_i  = int(round(lo  * scale))
+        hi_i  = int(round(hi  * scale))
+        cur_i = int(round(cur * scale))
+        cur_i = int(clamp(cur_i, lo_i, hi_i))
+
+        st.session_state[sl_key] = cur_i
+        st.session_state[nb_key] = cur
+
+        decimals = max(0, -int(math.floor(math.log10(step)))) if step > 0 else 3
+        nb_fmt = f"%.{decimals}f"
+
+        def _sl_change(vk=vk, sl_key=sl_key, scale=scale):
+            st.session_state[vk] = float(st.session_state[sl_key]) / scale
+
+        def _nb_change(vk=vk, nb_key=nb_key, lo=lo, hi=hi):
+            raw = st.session_state.get(nb_key, lo)
+            st.session_state[vk] = float(clamp(raw, lo, hi))
+
+        col_sl, col_nb = st.columns([4, 1])
+        with col_sl:
+            st.slider(label, min_value=lo_i, max_value=hi_i,
+                      value=cur_i, step=1, disabled=disabled,
+                      key=sl_key, format=fmt, on_change=_sl_change)
+        with col_nb:
+            st.number_input("値", min_value=float(lo), max_value=float(hi),
+                            value=cur, step=float(step), disabled=disabled,
+                            key=nb_key, on_change=_nb_change,
+                            format=nb_fmt, label_visibility="collapsed")
+        return float(st.session_state[vk])
 
 
 # ══════════════════════════════════════════════════════════
@@ -375,8 +412,8 @@ with tab_input:
         ideco_withdraw_start  = linked_int("受取開始年齢", 60, 75,         65,      1,      "ide_ws", disabled=locked or not ideco_on)
         ideco_withdraw_annual = linked_int("受取（年額）",  0, 12_000_000, 600_000, 10_000, "ide_wa", disabled=locked or not ideco_on, man=True)
         st.caption("── リターン設定 ──")
-        ideco_return = linked_float("iDeCo 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "ideco_mu",  disabled=locked or not ideco_on)
-        ideco_vol    = linked_float("iDeCo 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "ideco_sig", disabled=locked or not ideco_on)
+        ideco_return = linked_float("iDeCo 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "ideco_mu",  disabled=locked or not ideco_on, pct=True)
+        ideco_vol    = linked_float("iDeCo 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "ideco_sig", disabled=locked or not ideco_on, pct=True)
 
     st.subheader("📊 NISA（積立 → 取崩）")
     nisa_on = st.checkbox("NISA を使う", value=True, disabled=locked)
@@ -393,11 +430,11 @@ with tab_input:
             nisa_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 10_000, "nisa_wa", disabled=locked or not nisa_on, man=True)
             nisa_withdraw_rate   = 0.04
         else:
-            nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked or not nisa_on)
+            nisa_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "nisa_wr", disabled=locked or not nisa_on, pct=True)
             nisa_withdraw_annual = 0
         st.caption("── リターン設定 ──")
-        nisa_return = linked_float("NISA 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "nisa_mu",  disabled=locked or not nisa_on)
-        nisa_vol    = linked_float("NISA 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "nisa_sig", disabled=locked or not nisa_on)
+        nisa_return = linked_float("NISA 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "nisa_mu",  disabled=locked or not nisa_on, pct=True)
+        nisa_vol    = linked_float("NISA 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "nisa_sig", disabled=locked or not nisa_on, pct=True)
 
     st.subheader("🏦 特定口座（積立 → 取崩）")
     taxable_on = st.checkbox("特定口座を使う", value=False, disabled=locked)
@@ -413,13 +450,13 @@ with tab_input:
             taxable_withdraw_annual = linked_int("取崩（年額）", 0, 36_000_000, 1_000_000, 10_000, "tax_wa", disabled=locked or not taxable_on, man=True)
             taxable_withdraw_rate   = 0.04
         else:
-            taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked or not taxable_on)
+            taxable_withdraw_rate   = linked_float("取崩（年率）", 0.01, 0.30, 0.04, 0.005, "tax_wr", disabled=locked or not taxable_on, pct=True)
             taxable_withdraw_annual = 0
-        taxable_tax_rate = linked_float("譲渡税率（特定口座）", 0.0, 0.30, 0.20315, 0.001, "tax_taxrate", fmt="%.4f", disabled=locked or not taxable_on)
+        taxable_tax_rate = linked_float("譲渡税率（特定口座）", 0.0, 0.30, 0.20315, 0.001, "tax_taxrate", disabled=locked or not taxable_on, pct=True)
         st.caption("※ 利益部分のみ課税。元本相当分は非課税で計算します。")
         st.caption("── リターン設定 ──")
-        tax_return = linked_float("特定口座 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "tax_mu",  disabled=locked or not taxable_on)
-        tax_vol    = linked_float("特定口座 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "tax_sig", disabled=locked or not taxable_on)
+        tax_return = linked_float("特定口座 期待リターン（年率）",       0.0, 0.20, 0.04, 0.001, "tax_mu",  disabled=locked or not taxable_on, pct=True)
+        tax_vol    = linked_float("特定口座 変動率（ボラティリティ）", 0.0, 0.50, 0.12, 0.001, "tax_sig", disabled=locked or not taxable_on, pct=True)
 
     st.subheader("🎯 一時イベント（最大12件）")
     _ev_def = [
