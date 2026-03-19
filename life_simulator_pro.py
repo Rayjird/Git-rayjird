@@ -336,10 +336,33 @@ with tab_input:
     living_after  = linked_int("退職後 生活費", 0, 20_000_000, 2_000_000, 10_000, "liv_a", disabled=locked, man=True)
 
     st.subheader("📈 インフレ率（年率）")
-    # step=0.01 → scale=100 → スライダーは -5〜30 の整数表示（≒ %表示）
-    inflation_rate = linked_float("インフレ率  （スライダー表示値 = %, 例: 1.00 → 1%/年）",
-                                  -0.05, 0.30, 0.01, 0.01, "infl", fmt="%.2f", disabled=locked)
-    st.caption(f"現在値: {inflation_rate*100:.2f} %/年　（入力範囲: -5.00 〜 +30.00 %、単位: 0.01 %）")
+    # %単位で直接操作（-5.00%〜+30.00%、0.01%刻み）。スライダー・数値入力とも%表示に統一。
+    _iv = "val_infl_pct"
+    _sk = "wsl_infl_pct"
+    _nk = "wnb_infl_pct"
+    if _iv not in st.session_state:
+        st.session_state[_iv] = 1.0   # デフォルト 1.00 %
+    _ic = float(clamp(st.session_state[_iv], -5.0, 30.0))
+    st.session_state[_sk] = _ic
+    st.session_state[_nk] = _ic
+
+    def _infl_sl_change():
+        st.session_state[_iv] = float(st.session_state[_sk])
+    def _infl_nb_change():
+        st.session_state[_iv] = float(clamp(st.session_state.get(_nk, 1.0), -5.0, 30.0))
+
+    _cs, _cn = st.columns([4, 1])
+    with _cs:
+        st.slider("インフレ率（%/年）", min_value=-5.0, max_value=30.0,
+                  value=_ic, step=0.01, format="%.2f %%",
+                  disabled=locked, key=_sk, on_change=_infl_sl_change)
+    with _cn:
+        st.number_input("%/年", min_value=-5.0, max_value=30.0,
+                        value=_ic, step=0.01, format="%.2f",
+                        disabled=locked, key=_nk, on_change=_infl_nb_change,
+                        label_visibility="collapsed")
+    inflation_rate = st.session_state[_iv] / 100.0
+    st.caption(f"現在値: {st.session_state[_iv]:.2f} %/年　（範囲: -5.00 〜 +30.00 %、単位: 0.01 %）")
 
     st.subheader("🏛️ iDeCo（積立 → 受取）")
     ideco_on = st.checkbox("iDeCo を使う", value=True, disabled=locked)
