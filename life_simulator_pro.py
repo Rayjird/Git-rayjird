@@ -16,6 +16,8 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def _setup_font():
     for pat in ["/usr/share/fonts/**/NotoSansCJK*.otf",
@@ -268,12 +270,19 @@ def simulate_path(params, rng):
     ic_h=[]; nc_h=[]; iw_h=[]; nw_h=[]; tc_h=[]; tw_h=[]
     ruined=False; ruin_age=None
     infl = params["inflation_rate"]
+    salary_ms  = params.get("salary_macro_slide", 0.0)
+    pension_ms = params.get("pension_macro_slide", -0.006)
+    salary_growth  = clamp(infl + salary_ms,  -0.03, 0.03)
+    pension_growth = clamp(infl + pension_ms, -0.03, 0.03)
 
     for age in years:
         inf_f = (1.0 + infl) ** int(age - params["start_age"])
+        years_elapsed = int(age - params["start_age"])
         income = 0.0
-        if age < params["retire_age"]:        income += params["salary_net"]
-        if age >= params["pension_start_age"]: income += params["pension_annual"]
+        if age < params["retire_age"]:
+            income += params["salary_net"] * (1.0 + salary_growth) ** years_elapsed
+        if age >= params["pension_start_age"]:
+            income += params["pension_annual"] * (1.0 + pension_growth) ** years_elapsed
 
         base_lv   = params["living_before"] if age < params["retire_age"] else params["living_after"]
         available = cash + income - base_lv * inf_f
@@ -364,9 +373,13 @@ with tab_input:
 
     st.subheader("💼 収入")
     salary_net        = linked_int("給与手取り（年額）",    0, 50_000_000, 3_000_000, 10_000, "salary",   disabled=locked, man=True)
+    salary_macro_slide = linked_float("給与 マクロスライド（年率）", -0.03, 0.03, 0.0, 0.001, "sal_ms", disabled=locked, pct=True)
+    st.caption("給与の実質成長調整（0%=インフレ連動、+値=インフレ超で上昇、-値=インフレより低く推移）")
     retire_age        = linked_int("退職年齢",              40, 90,        65,        1,      "ret_age",  disabled=locked)
     pension_start_age = linked_int("公的年金 受給開始年齢", 60, 90,        70,        1,      "pen_age",  disabled=locked)
     pension_annual    = linked_int("公的年金（年額）",       0, 10_000_000, 1_200_000, 10_000, "pension",  disabled=locked, man=True)
+    pension_macro_slide = linked_float("年金 マクロスライド（年率）", -0.03, 0.03, -0.006, 0.001, "pen_ms", disabled=locked, pct=True)
+    st.caption("通常 -0.6%程度（マクロスライド調整）")
 
     st.subheader("🛒 生活費（年額）")
     living_before = linked_int("退職前 生活費", 0, 20_000_000, 2_500_000, 10_000, "liv_b", disabled=locked, man=True)
@@ -499,6 +512,8 @@ def build_params():
         pension_start_age=int(pension_start_age), pension_annual=float(pension_annual),
         living_before=float(living_before), living_after=float(living_after),
         inflation_rate=float(inflation_rate),
+        salary_macro_slide=float(salary_macro_slide),
+        pension_macro_slide=float(pension_macro_slide),
         ideco_on=bool(ideco_on),
         ideco_contrib_start=int(ideco_contrib_start),
         ideco_contrib_end=max(int(ideco_contrib_end), int(ideco_contrib_start)),
@@ -819,6 +834,82 @@ with tab_result:
 
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
+
+    # ── インタラクティブグラフ（Plotly / ツールチップ付き） ──
+    st.subheader("🖱 インタラクティブグラフ（カーソルでツールチップ表示）")
+    avg_invest = avg_ideco + avg_nisa + avg_taxable
+    customdata_main = np.column_stack([
+        yen_to_man(avg_cash),
+        yen_to_man(avg_invest),
+        ruin_prob,
+    ])
+    ht_main = (
+        "<b>年齢: %{x}歳</b><br>"
+        "総資産: %{y:,.0f} 万円<br>"
+        "現金残高: %{customdata[0]:,.0f} 万円<br>"
+        "総投資資産: %{customdata[1]:,.0f} 万円<br>"
+        "破綻確率: %{customdata[2]:.1f}%<br>"
+        "<extra></extra>"
+    )
+    fig_pl = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.68, 0.32],
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=("資産推移（平均）", "破綻確率（%）"),
+    )
+    # P10-P90 帯
+    fig_pl.add_trace(go.Scatter(
+        x=np.concatenate([years_arr, years_arr[::-1]]),
+        y=np.concatenate([yen_to_man(p90_total), yen_to_man(p10_total)[::-1]]),
+        fill="toself", fillcolor="rgba(76,114,176,0.15)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name="総資産 10-90%帯", hoverinfo="skip",
+    ), row=1, col=1)
+    # 総資産（平均）- メイントレース（ツールチップ付き）
+    fig_pl.add_trace(go.Scatter(
+        x=years_arr, y=yen_to_man(avg_total),
+        name="総資産（平均）",
+        line=dict(color="#1a6aff", width=3),
+        customdata=customdata_main,
+        hovertemplate=ht_main,
+    ), row=1, col=1)
+    # 現金
+    fig_pl.add_trace(go.Scatter(
+        x=years_arr, y=yen_to_man(avg_cash),
+        name="現金（平均）",
+        line=dict(color="#e67e22", width=2, dash="dash"),
+        hoverinfo="skip",
+    ), row=1, col=1)
+    # 総投資資産
+    fig_pl.add_trace(go.Scatter(
+        x=years_arr, y=yen_to_man(avg_invest),
+        name="総投資資産（iDeCo+NISA+特定）",
+        line=dict(color="#27ae60", width=2, dash="dot"),
+        hoverinfo="skip",
+    ), row=1, col=1)
+    # 破綻確率
+    fig_pl.add_trace(go.Scatter(
+        x=years_arr, y=ruin_prob,
+        name="破綻確率",
+        line=dict(color="#c0392b", width=2),
+        fill="tozeroy", fillcolor="rgba(192,57,43,0.08)",
+        hovertemplate="年齢: %{x}歳<br>破綻確率: %{y:.1f}%<extra></extra>",
+    ), row=2, col=1)
+    # しきい値ライン
+    fig_pl.add_hline(y=threshold, line_dash="dash", line_color="#8e44ad",
+                     annotation_text=f"しきい値 {threshold}%",
+                     annotation_position="top left", row=2, col=1)
+    fig_pl.update_layout(
+        height=580,
+        hovermode="x unified",
+        legend=dict(orientation="h", y=1.02, x=0),
+        margin=dict(t=60, b=40),
+    )
+    fig_pl.update_xaxes(title_text="年齢（歳）", row=2, col=1)
+    fig_pl.update_yaxes(title_text="資産（万円）", row=1, col=1)
+    fig_pl.update_yaxes(title_text="破綻確率（%）", range=[0, 100], row=2, col=1)
+    st.plotly_chart(fig_pl, use_container_width=True)
 
     # ── 枠外：グラフ凡例 + アノテーション日本語対比表 ────
     # ライン種類の対比表
