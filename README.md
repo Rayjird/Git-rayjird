@@ -1,4 +1,5 @@
-![アプリのプレビュー](thumbnail1.png)
+
+<img width="2752" height="1536" alt="Gemini_Generated_Image_gxakzhgxakzhgxak" src="https://github.com/user-attachments/assets/b9fa9aab-66df-4e86-aeb3-3c2a2da5f92e" />
 
 # 老後資産シミュレーター Pro版
 ### 〜プロフェッショナルな分析で、確かな未来を〜
